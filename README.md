@@ -1,6 +1,7 @@
 # Kerbal Proportions
 
 [![Latest release](https://img.shields.io/github/v/release/NickDeVeau/Kerbal-Proportions?display_name=tag)](https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest)
+[![SpaceDock](https://img.shields.io/badge/SpaceDock-download-2f6f9f)](https://spacedock.info/mod/4513)
 [![KSP 1.12.5](https://img.shields.io/badge/KSP-1.12.5-2f6f9f)](https://www.kerbalspaceprogram.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -37,7 +38,8 @@ change vessel physics, or alter Kerbal statistics.
 
 1. Close KSP.
 2. Download `KerbalProportions-v2.5.0.zip` from the
-   [latest release](https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest).
+   [latest GitHub release](https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest)
+   or [SpaceDock](https://spacedock.info/mod/4513).
 3. Extract the ZIP into the KSP installation folder and merge its `GameData`
    folder with KSP's existing `GameData` folder.
 4. Confirm that the DLL is located at:

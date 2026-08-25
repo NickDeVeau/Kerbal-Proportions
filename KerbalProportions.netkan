@@ -18,5 +18,6 @@ install:
     install_to: GameData
 resources:
   homepage: https://github.com/NickDeVeau/Kerbal-Proportions
+  spacedock: https://spacedock.info/mod/4513
   repository: https://github.com/NickDeVeau/Kerbal-Proportions
   bugtracker: https://github.com/NickDeVeau/Kerbal-Proportions/issues
