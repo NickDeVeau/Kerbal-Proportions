@@ -4,6 +4,20 @@ All notable public changes to Kerbal Proportions are documented here.
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-08-25
+
+### Added
+
+- Added separate read-only Stock and Humanoid presets; custom profiles remain
+  user-owned and are never replaced by an update.
+- Added soft compatibility with Benjee10 Historical Kerbal Suits wearable
+  attachments so external helmets inherit their declared head-bone scale.
+
+### Fixed
+
+- Limited the stock toolbar button to flight and corrected launcher lifecycle
+  cleanup so it no longer accumulates duplicate buttons in the VAB.
+
 ## [2.5.0] - 2026-08-24
 
 First public GitHub release and the supported baseline for the current rig
@@ -32,5 +46,6 @@ editor.
   proposed NetKAN metadata.
 - Runtime-created settings and profiles are excluded from release archives.
 
-[Unreleased]: https://github.com/NickDeVeau/Kerbal-Proportions/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/NickDeVeau/Kerbal-Proportions/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/NickDeVeau/Kerbal-Proportions/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/NickDeVeau/Kerbal-Proportions/releases/tag/v2.5.0

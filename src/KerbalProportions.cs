@@ -10,8 +10,8 @@ using UnityEngine;
 [assembly: AssemblyCompany("Nick DeVeau")]
 [assembly: AssemblyProduct("Kerbal Proportions")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Nick DeVeau")]
-[assembly: AssemblyVersion("2.5.0.0")]
-[assembly: AssemblyFileVersion("2.5.0.0")]
+[assembly: AssemblyVersion("2.5.1.0")]
+[assembly: AssemblyFileVersion("2.5.1.0")]
 
 namespace KerbalProportions
 {
@@ -505,6 +505,66 @@ namespace KerbalProportions
         internal int BoneIndex = -1;
     }
 
+    // WearableProps (used by Benjee10's Historical Kerbal Suits) places each
+    // prop directly below the EVA root and copies only position/rotation from
+    // its attach bone. Parenting that prop below the advertised attach bone
+    // lets Unity carry the bone's scale too, without a compile-time dependency
+    // on WearableProps. The original hierarchy is restored when this controller
+    // is destroyed.
+    internal sealed class WearablePropAttachment
+    {
+        internal MonoBehaviour Tracker;
+        internal int TrackerId;
+        internal Transform Accessory;
+        internal Transform Anchor;
+        internal Transform OriginalParent;
+        internal int OriginalSiblingIndex;
+        internal bool Attached;
+
+        internal bool IsAlive
+        {
+            get
+            {
+                return Tracker != null && Accessory != null && Anchor != null;
+            }
+        }
+
+        internal bool Matches(MonoBehaviour tracker, Transform anchor)
+        {
+            return Tracker == tracker && Accessory == tracker.transform &&
+                Anchor == anchor;
+        }
+
+        internal bool Attach()
+        {
+            if (!IsAlive || Accessory == Anchor || Accessory.IsChildOf(Anchor) ||
+                Anchor.IsChildOf(Accessory)) return false;
+            OriginalParent = Accessory.parent;
+            OriginalSiblingIndex = Accessory.GetSiblingIndex();
+            Vector3 worldPosition = Accessory.position;
+            Quaternion worldRotation = Accessory.rotation;
+            // Keep the prop's authored local scale. Its new parent supplies the
+            // cumulative scale of the head/hand/other advertised attach bone.
+            Accessory.SetParent(Anchor, false);
+            Accessory.SetPositionAndRotation(worldPosition, worldRotation);
+            Attached = true;
+            return true;
+        }
+
+        internal void Restore()
+        {
+            if (!Attached || Accessory == null) return;
+            Vector3 worldPosition = Accessory.position;
+            Quaternion worldRotation = Accessory.rotation;
+            Accessory.SetParent(OriginalParent, false);
+            Accessory.SetPositionAndRotation(worldPosition, worldRotation);
+            if (OriginalParent != null && OriginalParent.childCount > 0)
+                Accessory.SetSiblingIndex(Mathf.Clamp(OriginalSiblingIndex, 0,
+                    OriginalParent.childCount - 1));
+            Attached = false;
+        }
+    }
+
     internal sealed class DragTargetState
     {
         internal RigTarget Target;
@@ -525,6 +585,8 @@ namespace KerbalProportions
             new List<RigTarget>();
         internal readonly Dictionary<string, RigTarget> ByKey =
             new Dictionary<string, RigTarget>(StringComparer.Ordinal);
+        internal readonly List<WearablePropAttachment> WearableProps =
+            new List<WearablePropAttachment>();
         internal bool IsAlive
         {
             get
@@ -556,6 +618,8 @@ namespace KerbalProportions
         internal void Restore()
         {
             foreach (RigTarget target in Targets) target.Restore();
+            foreach (WearablePropAttachment attachment in WearableProps)
+                attachment.Restore();
         }
     }
 
@@ -669,7 +733,7 @@ namespace KerbalProportions
     }
 
     [DefaultExecutionOrder(10000)]
-    [KSPAddon(KSPAddon.Startup.EveryScene, false)]
+    [KSPAddon(KSPAddon.Startup.Flight, false)]
     internal sealed class ProportionsController : MonoBehaviour
     {
         private const float TargetPanelWidth = 400f;
@@ -740,6 +804,12 @@ namespace KerbalProportions
                 "GameData/KerbalProportions/PluginData/profiles.cfg"); }
         }
 
+        private static string BuiltInPresetsPath
+        {
+            get { return Path.Combine(KSPUtil.ApplicationRootPath,
+                "GameData/KerbalProportions/presets.cfg"); }
+        }
+
         private static string LegacyProfilesPath
         {
             get { return Path.Combine(KSPUtil.ApplicationRootPath,
@@ -757,12 +827,14 @@ namespace KerbalProportions
             nextScan = 0f;
             RefreshProfileNames();
             GameEvents.onGUIApplicationLauncherReady.Add(CreateToolbarButton);
+            GameEvents.onGUIApplicationLauncherDestroyed.Add(
+                OnToolbarDestroyed);
             if (KSP.UI.Screens.ApplicationLauncher.Ready) CreateToolbarButton();
             Camera.onPreCull += OnCameraPreCull;
             Camera.onPreRender += OnCameraPreRender;
             Camera.onPostRender += OnCameraPostRender;
             CreateLineMaterial();
-            Debug.Log("[KerbalProportions] Version 2.5.0 active.");
+            Debug.Log("[KerbalProportions] Version 2.5.1 active.");
         }
 
         private static void MigrateLegacyPluginData()
@@ -968,10 +1040,22 @@ namespace KerbalProportions
 
         private void AddRig(Component owner, Transform root, bool isIva)
         {
-            if (owner == null || root == null ||
-                knownOwners.Contains(owner.GetInstanceID())) return;
+            if (owner == null || root == null) return;
+            int ownerId = owner.GetInstanceID();
+            if (knownOwners.Contains(ownerId))
+            {
+                foreach (EditableRig existing in rigs)
+                    if (existing.OwnerId == ownerId && existing.Owner == owner)
+                    {
+                        RefreshWearablePropAttachments(existing);
+                        return;
+                    }
+                // Recover from an interrupted/dead-rig cleanup instead of
+                // permanently suppressing this Unity instance ID.
+                knownOwners.Remove(ownerId);
+            }
             EditableRig rig = new EditableRig { Owner = owner, Root = root,
-                IsIva = isIva, OwnerId = owner.GetInstanceID() };
+                IsIva = isIva, OwnerId = ownerId };
             HashSet<Transform> bones = new HashSet<Transform>();
             foreach (SkinnedMeshRenderer renderer in
                 root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
@@ -1027,7 +1111,7 @@ namespace KerbalProportions
             BuildTargetHierarchy(rig);
             if (rig.Targets.Count == 0) return;
             rigs.Add(rig);
-            knownOwners.Add(owner.GetInstanceID());
+            knownOwners.Add(ownerId);
             foreach (RigTarget rootTarget in rig.RootTargets)
                 if (rootTarget.Children.Count > 0)
                 {
@@ -1036,6 +1120,68 @@ namespace KerbalProportions
                         expandedHierarchyKeys.Add(stateKey);
                 }
             LogRigMatches(rig);
+            RefreshWearablePropAttachments(rig);
+        }
+
+        private static void RefreshWearablePropAttachments(EditableRig rig)
+        {
+            for (int index = rig.WearableProps.Count - 1; index >= 0; index--)
+            {
+                WearablePropAttachment attachment = rig.WearableProps[index];
+                if (attachment.IsAlive) continue;
+                attachment.Restore();
+                rig.WearableProps.RemoveAt(index);
+            }
+
+            foreach (MonoBehaviour behaviour in
+                rig.Root.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (behaviour == null || behaviour.GetType().FullName !=
+                    "WearableProps.TrackRigidbody") continue;
+                FieldInfo field = behaviour.GetType().GetField("attachTransform",
+                    BindingFlags.Instance | BindingFlags.Public);
+                if (field == null) continue;
+                Transform anchor = field.GetValue(behaviour) as Transform;
+                Transform accessory = behaviour.transform;
+                if (anchor == null || accessory == null || anchor == accessory ||
+                    !IsInHierarchy(anchor, rig.Root) ||
+                    !IsInHierarchy(accessory, rig.Root)) continue;
+
+                int trackerId = behaviour.GetInstanceID();
+                WearablePropAttachment existing = null;
+                foreach (WearablePropAttachment candidate in rig.WearableProps)
+                    if (candidate.TrackerId == trackerId)
+                    { existing = candidate; break; }
+                if (existing != null)
+                {
+                    if (existing.Matches(behaviour, anchor)) continue;
+                    existing.Restore();
+                    rig.WearableProps.Remove(existing);
+                }
+                // A newer WearableProps build may already parent props to their
+                // attach bones, in which case no compatibility adjustment is
+                // needed and double-parenting would be harmful.
+                if (accessory.IsChildOf(anchor)) continue;
+                WearablePropAttachment attachment =
+                    new WearablePropAttachment { Tracker = behaviour,
+                        TrackerId = trackerId, Accessory = accessory,
+                        Anchor = anchor };
+                if (!attachment.Attach()) continue;
+                rig.WearableProps.Add(attachment);
+                Debug.Log("[KerbalProportions] Wearable prop follows scale of " +
+                    anchor.name + ": " + accessory.name);
+            }
+        }
+
+        private static bool IsInHierarchy(Transform transform, Transform root)
+        {
+            Transform cursor = transform;
+            while (cursor != null)
+            {
+                if (cursor == root) return true;
+                cursor = cursor.parent;
+            }
+            return false;
         }
 
         private void LogRigMatches(EditableRig rig)
@@ -1623,7 +1769,16 @@ namespace KerbalProportions
         private void DrawProfilesTab()
         {
             GUILayout.BeginVertical(HighLogic.Skin.box);
-            GUILayout.Label("Profiles");
+            GUILayout.Label("Built-in presets");
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Stock")) LoadStockPreset();
+            bool previousEnabled = GUI.enabled;
+            GUI.enabled = previousEnabled && File.Exists(BuiltInPresetsPath);
+            if (GUILayout.Button("Humanoid")) LoadBuiltInPreset("Humanoid");
+            GUI.enabled = previousEnabled;
+            GUILayout.EndHorizontal();
+            GUILayout.Space(6);
+            GUILayout.Label("Custom profiles");
             if (profileNames.Count > 0)
             {
                 int chosen = GUILayout.SelectionGrid(selectedProfile,
@@ -1635,6 +1790,7 @@ namespace KerbalProportions
                     profileName = profileNames[chosen];
                 }
             }
+            else GUILayout.Label("No custom profiles saved yet.");
             profileName = GUILayout.TextField(profileName ?? string.Empty);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Save profile")) SaveProfile();
@@ -1649,9 +1805,9 @@ namespace KerbalProportions
             }
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
-            GUILayout.Label("Profiles include proportions, motion limits, and " +
-                "portrait framing. Saving also makes the profile the current " +
-                "state for scene changes and quickloads.");
+            GUILayout.Label("Built-in presets never overwrite custom profiles. " +
+                "Custom profiles include proportions, motion limits, and " +
+                "portrait framing; saving also makes one the current state.");
         }
 
         private void DrawPortraitTab()
@@ -2134,6 +2290,69 @@ namespace KerbalProportions
             SyncFields(settings.GetOrCreate(target.Key, target.DisplayName));
         }
 
+        private void LoadStockPreset()
+        {
+            PushUndo("Load Stock preset");
+            settings.ClearEdits();
+            settings.Portrait.Reset();
+            settings.Save();
+            SyncSelectedFields();
+            ScreenMessages.PostScreenMessage(
+                "Kerbal Proportions preset loaded: Stock", 2f,
+                ScreenMessageStyle.UPPER_CENTER);
+        }
+
+        private void LoadBuiltInPreset(string name)
+        {
+            ConfigNode profile = FindBuiltInPreset(name);
+            if (profile == null) return;
+            PushUndo("Load " + name + " preset");
+            ApplyProfile(profile);
+            ScreenMessages.PostScreenMessage(
+                "Kerbal Proportions preset loaded: " + name, 2f,
+                ScreenMessageStyle.UPPER_CENTER);
+        }
+
+        private static ConfigNode FindBuiltInPreset(string name)
+        {
+            try
+            {
+                if (!File.Exists(BuiltInPresetsPath)) return null;
+                ConfigNode root = ConfigNode.Load(BuiltInPresetsPath);
+                ConfigNode container = BuiltInPresetContainer(root);
+                if (container != null)
+                    foreach (ConfigNode profile in container.GetNodes("PRESET"))
+                        if (string.Equals(profile.GetValue("name"), name,
+                            StringComparison.OrdinalIgnoreCase)) return profile;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError("[KerbalProportions] Built-in preset load failed: " +
+                    exception);
+            }
+            ScreenMessages.PostScreenMessage(
+                "Kerbal Proportions preset unavailable: " + name, 2f,
+                ScreenMessageStyle.UPPER_CENTER);
+            return null;
+        }
+
+        private static ConfigNode BuiltInPresetContainer(ConfigNode root)
+        {
+            if (root == null) return null;
+            if (root.name == "KERBAL_PROPORTIONS_PRESETS") return root;
+            return root.GetNode("KERBAL_PROPORTIONS_PRESETS");
+        }
+
+        private void ApplyProfile(ConfigNode profile)
+        {
+            settings.ReplaceEdits(ReadProfileEdits(profile));
+            PortraitFraming portrait;
+            if (TryReadProfilePortrait(profile, out portrait))
+                settings.Portrait.CopyFrom(portrait);
+            settings.Save();
+            SyncSelectedFields();
+        }
+
         private void SaveProfile()
         {
             string name = (profileName ?? string.Empty).Trim();
@@ -2167,11 +2386,7 @@ namespace KerbalProportions
         private void LoadProfile()
         {
             ConfigNode profile = FindProfile(profileName); if (profile == null) return;
-            PushUndo("Load profile"); settings.ReplaceEdits(ReadProfileEdits(profile));
-            PortraitFraming portrait;
-            if (TryReadProfilePortrait(profile, out portrait))
-                settings.Portrait.CopyFrom(portrait);
-            settings.Save(); SyncSelectedFields();
+            PushUndo("Load profile"); ApplyProfile(profile);
             ScreenMessages.PostScreenMessage(
                 "Kerbal Proportions profile loaded: " + profileName,
                 2f, ScreenMessageStyle.UPPER_CENTER);
@@ -2969,7 +3184,30 @@ namespace KerbalProportions
             toolbarButton = KSP.UI.Screens.ApplicationLauncher.Instance.AddModApplication(
                 delegate { ToggleWindow(true); }, delegate { ToggleWindow(false); },
                 null, null, null, null,
-                KSP.UI.Screens.ApplicationLauncher.AppScenes.ALWAYS, toolbarIcon);
+                KSP.UI.Screens.ApplicationLauncher.AppScenes.FLIGHT |
+                    KSP.UI.Screens.ApplicationLauncher.AppScenes.MAPVIEW,
+                toolbarIcon);
+        }
+
+        private void OnToolbarDestroyed()
+        {
+            // The launcher owns and destroys its button. Clear our scene-local
+            // references so a subsequently created flight launcher gets one
+            // fresh button and no stale icon is retained.
+            toolbarButton = null;
+            if (toolbarIcon != null) Destroy(toolbarIcon);
+            toolbarIcon = null;
+        }
+
+        private void RemoveToolbarButton()
+        {
+            if (toolbarButton != null &&
+                KSP.UI.Screens.ApplicationLauncher.Instance != null)
+                KSP.UI.Screens.ApplicationLauncher.Instance.RemoveModApplication(
+                    toolbarButton);
+            toolbarButton = null;
+            if (toolbarIcon != null) Destroy(toolbarIcon);
+            toolbarIcon = null;
         }
 
         private void ToggleWindow(bool show)
@@ -3032,14 +3270,12 @@ namespace KerbalProportions
             foreach (EditableRig rig in rigs) rig.Restore();
             RestorePortraitCameras();
             GameEvents.onGUIApplicationLauncherReady.Remove(CreateToolbarButton);
+            GameEvents.onGUIApplicationLauncherDestroyed.Remove(
+                OnToolbarDestroyed);
             Camera.onPreCull -= OnCameraPreCull;
             Camera.onPreRender -= OnCameraPreRender;
             Camera.onPostRender -= OnCameraPostRender;
-            if (toolbarButton != null &&
-                KSP.UI.Screens.ApplicationLauncher.Instance != null)
-                KSP.UI.Screens.ApplicationLauncher.Instance.RemoveModApplication(
-                    toolbarButton);
-            if (toolbarIcon != null) Destroy(toolbarIcon);
+            RemoveToolbarButton();
             if (lineMaterial != null) Destroy(lineMaterial);
         }
     }

@@ -10,7 +10,7 @@ lets you reshape EVA and IVA Kerbals in flight by moving, rotating, and scaling
 the bones and mesh roots already present in the active model. No replacement
 Kerbal model or texture pack is required.
 
-The current release is **v2.5.0**, tested with **KSP 1.12.5**.
+The current release is **v2.5.1**, tested with **KSP 1.12.5**.
 
 ## Features
 
@@ -30,6 +30,10 @@ The current release is **v2.5.0**, tested with **KSP 1.12.5**.
   its seat.
 - Save, load, and delete named pose, motion, and portrait profiles while keeping
   the current edit across scene changes and quickloads.
+- Start from the included Stock or Humanoid preset without overwriting custom
+  profiles.
+- Scale wearable helmets and accessories from Benjee10's Historical Kerbal
+  Suits with their declared attachment bones.
 
 Kerbal Proportions changes the rendered rig. It does not replace Kerbal meshes,
 change vessel physics, or alter Kerbal statistics.
@@ -37,7 +41,7 @@ change vessel physics, or alter Kerbal statistics.
 ## Installation
 
 1. Close KSP.
-2. Download `KerbalProportions-v2.5.0.zip` from the
+2. Download `KerbalProportions-v2.5.1.zip` from the
    [latest GitHub release](https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest)
    or [SpaceDock](https://spacedock.info/mod/4513).
 3. Extract the ZIP into the KSP installation folder and merge its `GameData`
@@ -53,8 +57,9 @@ that old folder after copying its `PluginData` somewhere safe. Do not leave both
 DLLs installed.
 
 The release archive does not contain a personal `settings.cfg` or
-`profiles.cfg`, so installing an update will not overwrite your edits. The mod
-creates and updates those files under
+`profiles.cfg`, so installing an update will not overwrite your edits. Its
+read-only built-in presets are stored separately in `presets.cfg`. The mod
+creates and updates personal files under
 `GameData/KerbalProportions/PluginData` while KSP is running.
 
 ## Basic use
@@ -113,7 +118,7 @@ From PowerShell:
 Useful options:
 
 ```powershell
-# Build and create artifacts/KerbalProportions-v2.5.0.zip
+# Build and create artifacts/KerbalProportions-v2.5.1.zip
 .\build.ps1 -KspRoot 'C:\Path\To\Kerbal Space Program' -Package
 
 # Build and install into that KSP copy; KSP must be closed
