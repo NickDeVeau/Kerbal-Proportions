@@ -1,0 +1,148 @@
+# Kerbal Proportions
+
+[![Latest release](https://img.shields.io/github/v/release/NickDeVeau/Kerbal-Proportions?display_name=tag)](https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest)
+[![KSP 1.12.5](https://img.shields.io/badge/KSP-1.12.5-2f6f9f)](https://www.kerbalspaceprogram.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+Kerbal Proportions is a live visual rig editor for Kerbal Space Program 1. It
+lets you reshape EVA and IVA Kerbals in flight by moving, rotating, and scaling
+the bones and mesh roots already present in the active model. No replacement
+Kerbal model or texture pack is required.
+
+The current release is **v2.5.0**, tested with **KSP 1.12.5**.
+
+## Features
+
+- Edit discovered Kerbal bones and mesh roots with an always-visible viewport
+  gumball or exact numeric values.
+- Search and browse targets in a collapsible hierarchy that follows the actual
+  runtime rig.
+- Hover highlighting, Ctrl multi-selection, Shift range selection, whole-branch
+  selection, and mirrored left/right editing.
+- Move, rotate, or scale several related bones together without compounding
+  nested scale changes.
+- Reduce stock animation rotation independently on each local axis, or use
+  animation-safe pose rotation to layer a correction over the rest pose.
+- Edit EVA and IVA rigs, including IVA overlays used by compatible internal-view
+  mods. IVA editing is intentionally opt-in.
+- Adjust portrait framing, zoom, yaw, and pitch without moving a Kerbal out of
+  its seat.
+- Save, load, and delete named pose, motion, and portrait profiles while keeping
+  the current edit across scene changes and quickloads.
+
+Kerbal Proportions changes the rendered rig. It does not replace Kerbal meshes,
+change vessel physics, or alter Kerbal statistics.
+
+## Installation
+
+1. Close KSP.
+2. Download `KerbalProportions-v2.5.0.zip` from the
+   [latest release](https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest).
+3. Extract the ZIP into the KSP installation folder and merge its `GameData`
+   folder with KSP's existing `GameData` folder.
+4. Confirm that the DLL is located at:
+
+   ```text
+   Kerbal Space Program/GameData/KerbalProportions/Plugins/KerbalProportions.dll
+   ```
+
+If you previously tested the temporary `KerbalProportionsV2` package, remove
+that old folder after copying its `PluginData` somewhere safe. Do not leave both
+DLLs installed.
+
+The release archive does not contain a personal `settings.cfg` or
+`profiles.cfg`, so installing an update will not overwrite your edits. The mod
+creates and updates those files under
+`GameData/KerbalProportions/PluginData` while KSP is running.
+
+## Basic use
+
+1. Enter flight with an EVA Kerbal or a vessel containing crew.
+2. Select the Kerbal Proportions button in KSP's stock toolbar.
+3. Select a target in the hierarchy or click a highlighted body part in the
+   viewport.
+4. Drag the gumball, or enter exact values in the **Pose** tab.
+5. Select **Save current** to persist the active settings, or use the
+   **Profiles** tab to save a named preset.
+
+| Action | Control |
+| --- | --- |
+| Move | `W` |
+| Rotate | `E` |
+| Scale | `R` |
+| Add or remove a target | Ctrl-click |
+| Select a visible range | Shift-click |
+| Select a target and its descendants | **Select branch** |
+| Add left/right counterparts | **Mirror** |
+
+The **Motion** tab controls how strongly stock animation rotation affects the
+selected targets on each local axis. A value of 100% preserves stock motion;
+0% holds that axis at its rest orientation. This is useful when a changed body
+shape makes a walk cycle look too wide or exaggerated.
+
+The **Portrait** tab modifies only KSP's portrait cameras. The **Profiles** tab
+stores pose, motion, and portrait values together. General editor preferences
+remain in the current settings file rather than in each named profile.
+
+## Compatibility and limitations
+
+- Tested on KSP 1.12.5. Other KSP versions are not currently claimed as
+  compatible.
+- No third-party dependencies are required.
+- Suit and model mods can expose different transform hierarchies. Semantic name
+  matching helps profiles cross between compatible rigs, but unmatched targets
+  are reported in `KSP.log` and left unchanged.
+- Large rest-pose changes can still make authored animations look unusual. Use
+  the Motion controls to constrain the affected axes.
+- Back up `GameData/KerbalProportions/PluginData` before experimenting with a
+  valuable profile library.
+
+## Building from source
+
+Building requires a local KSP 1.12.5 installation because the project compiles
+against KSP and Unity assemblies that are not redistributed here.
+
+From PowerShell:
+
+```powershell
+.\build.ps1 -KspRoot 'C:\Path\To\Kerbal Space Program'
+```
+
+Useful options:
+
+```powershell
+# Build and create artifacts/KerbalProportions-v2.5.0.zip
+.\build.ps1 -KspRoot 'C:\Path\To\Kerbal Space Program' -Package
+
+# Build and install into that KSP copy; KSP must be closed
+.\build.ps1 -KspRoot 'C:\Path\To\Kerbal Space Program' -Install
+```
+
+On the author's default Steam installation, `-KspRoot` can be omitted. The
+compiler path can be overridden with `-Compiler` if needed. Use `-DebugSymbols`
+for a local PDB-enabled development build; public packages are always built
+without path-bearing debug symbols.
+
+## Project layout
+
+```text
+src/                                             C# source
+GameData/KerbalProportions/                      Version metadata/default data
+build.ps1                                        Build, install, and package script
+KerbalProportions.netkan                         Proposed CKAN indexing metadata
+```
+
+Bug reports and feature requests are welcome through
+[GitHub Issues](https://github.com/NickDeVeau/Kerbal-Proportions/issues). Please
+include the KSP version, mod version, reproduction steps, relevant mod list, and
+the matching section of `KSP.log`.
+
+See [CHANGELOG.md](CHANGELOG.md) for release history and
+[CONTRIBUTING.md](CONTRIBUTING.md) for development guidance.
+
+## License
+
+Kerbal Proportions is released under the [MIT License](LICENSE).
+
+Kerbal Space Program and its related names and assets belong to their respective
+owners. This community project is not affiliated with or endorsed by them.

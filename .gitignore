@@ -1,0 +1,27 @@
+# Build and packaged release output
+/dist/
+/artifacts/
+/releases/
+**/bin/
+**/obj/
+*.dll
+*.pdb
+*.mdb
+*.zip
+
+# IDE and editor state
+/.vs/
+/.vscode/
+/.idea/
+*.suo
+*.user
+*.userprefs
+
+# Runtime-created user profiles; the clean default settings.cfg is tracked
+/GameData/KerbalProportions/PluginData/profiles.cfg
+
+# Logs and operating-system metadata
+*.log
+Thumbs.db
+Desktop.ini
+.DS_Store

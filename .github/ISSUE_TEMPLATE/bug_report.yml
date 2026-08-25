@@ -1,0 +1,63 @@
+name: Bug report
+description: Report reproducible incorrect behavior or a compatibility problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Kerbal Proportions. Please remove personal information from logs before attaching them.
+  - type: input
+    id: mod-version
+    attributes:
+      label: Kerbal Proportions version
+      placeholder: v2.5.0
+    validations:
+      required: true
+  - type: input
+    id: ksp-version
+    attributes:
+      label: KSP version
+      placeholder: 1.12.5
+    validations:
+      required: true
+  - type: dropdown
+    id: rig
+    attributes:
+      label: Affected rig
+      options:
+        - EVA
+        - IVA
+        - Portrait
+        - More than one / unsure
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Load ...
+        2. Select ...
+        3. Change ...
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Relevant mods
+      description: Include suit, texture, IVA, animation, or Kerbal model mods, or write "stock".
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt or file
+      description: Drag in KSP.log or paste the relevant KerbalProportions lines when possible.

@@ -1,0 +1,27 @@
+{
+  "NAME": "Kerbal Proportions",
+  "URL": "https://raw.githubusercontent.com/NickDeVeau/Kerbal-Proportions/main/GameData/KerbalProportions/KerbalProportions.version",
+  "DOWNLOAD": "https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest",
+  "CHANGE_LOG_URL": "https://raw.githubusercontent.com/NickDeVeau/Kerbal-Proportions/main/CHANGELOG.md",
+  "GITHUB": {
+    "USERNAME": "NickDeVeau",
+    "REPOSITORY": "Kerbal-Proportions",
+    "ALLOW_PRE_RELEASE": false
+  },
+  "VERSION": {
+    "MAJOR": 2,
+    "MINOR": 5,
+    "PATCH": 0,
+    "BUILD": 0
+  },
+  "KSP_VERSION_MIN": {
+    "MAJOR": 1,
+    "MINOR": 12,
+    "PATCH": 5
+  },
+  "KSP_VERSION_MAX": {
+    "MAJOR": 1,
+    "MINOR": 12,
+    "PATCH": 5
+  }
+}
