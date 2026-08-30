@@ -51,7 +51,7 @@ jobs:
 
           version_json="$(unzip -p "release/$asset" 'GameData/KerbalProportions/KerbalProportions.version')"
           mod_version="$(jq -r '.VERSION | "\(.MAJOR).\(.MINOR).\(.PATCH)"' <<< "$version_json")"
-          ksp_version="$(jq -r '.KSP_VERSION | "\(.MAJOR).\(.MINOR).\(.PATCH)"' <<< "$version_json")"
+          ksp_version="$(jq -r '.KSP_VERSION_MIN | "\(.MAJOR).\(.MINOR).\(.PATCH)"' <<< "$version_json")"
 
           if [[ "$tag" != "v$mod_version" ]]; then
             echo "Tag $tag does not match packaged version $mod_version." >&2
@@ -87,7 +87,10 @@ jobs:
             exit 1
           fi
 
-          upload_response="$(curl --fail-with-body --silent --show-error \
+          upload_body="$RUNNER_TEMP/spacedock-upload-response.json"
+          upload_status="$(curl --silent --show-error \
+            --output "$upload_body" \
+            --write-out '%{http_code}' \
             --cookie "$cookie_jar" \
             --form-string "version=${{ steps.release.outputs.mod_version }}" \
             --form-string "changelog=$(<release/changelog.md)" \
@@ -95,7 +98,13 @@ jobs:
             --form-string 'notify-followers=yes' \
             --form "zipball=@release/${{ steps.release.outputs.asset }};type=application/zip" \
             "https://spacedock.info/api/mod/$SPACEDOCK_MOD_ID/update")"
+          upload_response="$(<"$upload_body")"
 
+          if [[ "$upload_status" -lt 200 || "$upload_status" -ge 300 ]]; then
+            reason="$(jq -r '.reason // .message // "HTTP upload failure"' <<< "$upload_response" 2>/dev/null || printf '%s' "$upload_response")"
+            echo "SpaceDock upload failed (HTTP $upload_status): $reason" >&2
+            exit 1
+          fi
           if [[ -n "$upload_response" ]] && jq -e '.error == true' >/dev/null 2>&1 <<< "$upload_response"; then
             reason="$(jq -r '.reason // "Unknown upload error"' <<< "$upload_response")"
             echo "SpaceDock upload failed: $reason" >&2
