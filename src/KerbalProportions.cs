@@ -1,17 +1,19 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [assembly: AssemblyTitle("Kerbal Proportions")]
 [assembly: AssemblyDescription("Additive Kerbal rig editor with viewport gumball")]
 [assembly: AssemblyCompany("Nick DeVeau")]
 [assembly: AssemblyProduct("Kerbal Proportions")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Nick DeVeau")]
-[assembly: AssemblyVersion("2.5.1.0")]
-[assembly: AssemblyFileVersion("2.5.1.0")]
+[assembly: AssemblyVersion("2.6.0.0")]
+[assembly: AssemblyFileVersion("2.6.0.0")]
 
 namespace KerbalProportions
 {
@@ -95,6 +97,42 @@ namespace KerbalProportions
         }
     }
 
+    internal sealed class TargetGroupMemberDefinition
+    {
+        internal string Key = string.Empty;
+        internal string Name = string.Empty;
+
+        internal TargetGroupMemberDefinition Clone()
+        {
+            return new TargetGroupMemberDefinition { Key = Key, Name = Name };
+        }
+    }
+
+    internal sealed class TargetGroupDefinition
+    {
+        internal string Id = string.Empty;
+        internal string Name = string.Empty;
+        internal readonly List<TargetGroupMemberDefinition> Members =
+            new List<TargetGroupMemberDefinition>();
+
+        internal TargetGroupDefinition Clone()
+        {
+            TargetGroupDefinition copy = new TargetGroupDefinition {
+                Id = Id, Name = Name };
+            foreach (TargetGroupMemberDefinition member in Members)
+                copy.Members.Add(member.Clone());
+            return copy;
+        }
+    }
+
+    internal sealed class RuntimeTargetGroup
+    {
+        internal string Id = string.Empty;
+        internal string Name = string.Empty;
+        internal bool Automatic;
+        internal readonly List<RigTarget> Members = new List<RigTarget>();
+    }
+
     internal sealed class EditorSettings
     {
         internal bool Enabled = true;
@@ -102,13 +140,22 @@ namespace KerbalProportions
         internal bool EnableIva = false;
         internal bool ShowWindow = false;
         internal bool LocalSpace = true;
+        internal bool ShowBones = true;
+        internal bool ShowMeshes = true;
+        internal bool ShowColliders = true;
         internal bool AnimationAwareRotation = false;
         internal float GizmoSize = 1f;
+        internal float HierarchyWindowX = 12f;
+        internal float HierarchyWindowY = 25f;
+        internal float ControlsWindowX = 668f;
+        internal float ControlsWindowY = 25f;
         internal readonly PortraitFraming Portrait = new PortraitFraming();
         internal bool LoadedLegacyFormat;
         internal int Revision;
         internal readonly Dictionary<string, TransformEdit> Edits =
             new Dictionary<string, TransformEdit>(StringComparer.Ordinal);
+        internal readonly List<TargetGroupDefinition> Groups =
+            new List<TargetGroupDefinition>();
 
         internal static string SettingsPath
         {
@@ -147,10 +194,21 @@ namespace KerbalProportions
                 result.EnableIva = ReadBool(node, "enableIva", false);
                 result.ShowWindow = ReadBool(node, "showWindow", false);
                 result.LocalSpace = ReadBool(node, "localSpace", true);
+                result.ShowBones = ReadBool(node, "showBones", true);
+                result.ShowMeshes = ReadBool(node, "showMeshes", true);
+                result.ShowColliders = ReadBool(node, "showColliders", true);
                 result.AnimationAwareRotation = ReadBool(node,
                     "animationAwareRotation", false);
                 result.GizmoSize = Mathf.Clamp(ReadFloat(node, "gizmoSize", 1f),
                     0.4f, 2.5f);
+                result.HierarchyWindowX = ReadFloat(node,
+                    "hierarchyWindowX", 12f);
+                result.HierarchyWindowY = ReadFloat(node,
+                    "hierarchyWindowY", 25f);
+                result.ControlsWindowX = ReadFloat(node,
+                    "controlsWindowX", 668f);
+                result.ControlsWindowY = ReadFloat(node,
+                    "controlsWindowY", 25f);
                 result.Portrait.Horizontal = ReadFloat(node,
                     "portraitHorizontal", 0f);
                 result.Portrait.Vertical = ReadFloat(node,
@@ -176,6 +234,7 @@ namespace KerbalProportions
                         edit.AnimationInfluence);
                     result.Edits[key] = edit;
                 }
+                ReadGroups(node, result.Groups);
                 result.Revision++;
             }
             catch (Exception exception)
@@ -195,8 +254,15 @@ namespace KerbalProportions
             node.AddValue("enableIva", EnableIva);
             node.AddValue("showWindow", false);
             node.AddValue("localSpace", LocalSpace);
+            node.AddValue("showBones", ShowBones);
+            node.AddValue("showMeshes", ShowMeshes);
+            node.AddValue("showColliders", ShowColliders);
             node.AddValue("animationAwareRotation", AnimationAwareRotation);
             node.AddValue("gizmoSize", Format(GizmoSize));
+            node.AddValue("hierarchyWindowX", Format(HierarchyWindowX));
+            node.AddValue("hierarchyWindowY", Format(HierarchyWindowY));
+            node.AddValue("controlsWindowX", Format(ControlsWindowX));
+            node.AddValue("controlsWindowY", Format(ControlsWindowY));
             node.AddValue("portraitHorizontal", Format(Portrait.Horizontal));
             node.AddValue("portraitVertical", Format(Portrait.Vertical));
             node.AddValue("portraitZoom", Format(Portrait.Zoom));
@@ -214,10 +280,56 @@ namespace KerbalProportions
                 WriteVector(target, "animationInfluence",
                     edit.AnimationInfluence);
             }
+            WriteGroups(node, Groups);
             string directory = Path.GetDirectoryName(SettingsPath);
             if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
             root.Save(SettingsPath);
             LoadedLegacyFormat = false;
+        }
+
+        internal static void WriteGroups(ConfigNode node,
+            IEnumerable<TargetGroupDefinition> groups)
+        {
+            foreach (TargetGroupDefinition definition in groups)
+            {
+                if (definition == null || definition.Members.Count < 2) continue;
+                ConfigNode group = node.AddNode("GROUP");
+                group.AddValue("id", definition.Id);
+                group.AddValue("name", definition.Name);
+                foreach (TargetGroupMemberDefinition definitionMember in
+                    definition.Members)
+                {
+                    ConfigNode member = group.AddNode("MEMBER");
+                    member.AddValue("key", definitionMember.Key);
+                    member.AddValue("name", definitionMember.Name);
+                }
+            }
+        }
+
+        internal static void ReadGroups(ConfigNode node,
+            List<TargetGroupDefinition> destination)
+        {
+            destination.Clear();
+            if (node == null) return;
+            foreach (ConfigNode group in node.GetNodes("GROUP"))
+            {
+                TargetGroupDefinition definition = new TargetGroupDefinition {
+                    Id = group.GetValue("id") ?? string.Empty,
+                    Name = group.GetValue("name") ?? "Accessory group" };
+                foreach (ConfigNode member in group.GetNodes("MEMBER"))
+                {
+                    string key = member.GetValue("key") ?? string.Empty;
+                    string name = member.GetValue("name") ?? string.Empty;
+                    if (key.Length == 0 && name.Length == 0) continue;
+                    definition.Members.Add(new TargetGroupMemberDefinition {
+                        Key = key, Name = name });
+                }
+                if (definition.Members.Count < 2) continue;
+                if (definition.Id.Length == 0)
+                    definition.Id = "group-" + destination.Count.ToString(
+                        CultureInfo.InvariantCulture);
+                destination.Add(definition);
+            }
         }
 
         internal TransformEdit GetOrCreate(string key, string name)
@@ -397,8 +509,11 @@ namespace KerbalProportions
         internal TransformEdit MatchedEdit;
         internal readonly List<BoneRendererBinding> RendererBindings =
             new List<BoneRendererBinding>();
+        internal readonly List<ColliderBinding> ColliderBindings =
+            new List<ColliderBinding>();
 
-        internal void Apply(TransformEdit edit, bool animationAwareRotation)
+        internal void Apply(TransformEdit edit, bool animationAwareRotation,
+            Vector3? stableScale)
         {
             if (Transform == null) return;
             Vector3 currentPosition = Transform.localPosition;
@@ -412,7 +527,12 @@ namespace KerbalProportions
                 BasePosition = currentPosition;
             if (!HasLast || !Same(currentRotation, LastRotation))
                 BaseRotation = currentRotation;
-            if (!HasLast || !Same(currentScale, LastScale))
+            // Ragdoll synchronization can copy an already-scaled bone into the
+            // animated hierarchy. Never accept that copy as a fresh baseline or
+            // the profile multiplier is briefly applied twice during recovery.
+            if (stableScale.HasValue)
+                BaseScale = stableScale.Value;
+            else if (!HasLast || !Same(currentScale, LastScale))
                 BaseScale = currentScale;
             Transform.localPosition = BasePosition + edit.Position;
             Quaternion animatedRotation = BaseRotation;
@@ -454,6 +574,31 @@ namespace KerbalProportions
                 Transform.localRotation = BaseRotation;
             if (Same(Transform.localScale, LastScale))
                 Transform.localScale = BaseScale;
+            HasLast = false;
+        }
+
+        internal bool ApplyLastPoseForRagdoll()
+        {
+            if (Transform == null || !HasLast || !HasMatchedEdit ||
+                MatchedEdit == null || MatchedEdit.IsIdentity) return false;
+            Transform.localPosition = LastPosition;
+            Transform.localRotation = LastRotation;
+            Transform.localScale = LastScale;
+            return true;
+        }
+
+        internal void HoldLastScaleDuringRagdoll()
+        {
+            if (Transform == null || !HasLast || !HasMatchedEdit ||
+                MatchedEdit == null ||
+                (MatchedEdit.Scale - Vector3.one).sqrMagnitude < 0.00000001f)
+                return;
+            if (!Same(Transform.localScale, LastScale))
+                Transform.localScale = LastScale;
+        }
+
+        internal void ForgetAppliedPose()
+        {
             HasLast = false;
         }
 
@@ -505,64 +650,22 @@ namespace KerbalProportions
         internal int BoneIndex = -1;
     }
 
-    // WearableProps (used by Benjee10's Historical Kerbal Suits) places each
-    // prop directly below the EVA root and copies only position/rotation from
-    // its attach bone. Parenting that prop below the advertised attach bone
-    // lets Unity carry the bone's scale too, without a compile-time dependency
-    // on WearableProps. The original hierarchy is restored when this controller
-    // is destroyed.
-    internal sealed class WearablePropAttachment
+    internal sealed class ColliderBinding
     {
-        internal MonoBehaviour Tracker;
-        internal int TrackerId;
-        internal Transform Accessory;
-        internal Transform Anchor;
-        internal Transform OriginalParent;
-        internal int OriginalSiblingIndex;
-        internal bool Attached;
+        internal Collider Collider;
+        internal string Key;
+        internal string Name;
+        internal bool IsAlive { get { return Collider != null; } }
+    }
 
-        internal bool IsAlive
-        {
-            get
-            {
-                return Tracker != null && Accessory != null && Anchor != null;
-            }
-        }
-
-        internal bool Matches(MonoBehaviour tracker, Transform anchor)
-        {
-            return Tracker == tracker && Accessory == tracker.transform &&
-                Anchor == anchor;
-        }
-
-        internal bool Attach()
-        {
-            if (!IsAlive || Accessory == Anchor || Accessory.IsChildOf(Anchor) ||
-                Anchor.IsChildOf(Accessory)) return false;
-            OriginalParent = Accessory.parent;
-            OriginalSiblingIndex = Accessory.GetSiblingIndex();
-            Vector3 worldPosition = Accessory.position;
-            Quaternion worldRotation = Accessory.rotation;
-            // Keep the prop's authored local scale. Its new parent supplies the
-            // cumulative scale of the head/hand/other advertised attach bone.
-            Accessory.SetParent(Anchor, false);
-            Accessory.SetPositionAndRotation(worldPosition, worldRotation);
-            Attached = true;
-            return true;
-        }
-
-        internal void Restore()
-        {
-            if (!Attached || Accessory == null) return;
-            Vector3 worldPosition = Accessory.position;
-            Quaternion worldRotation = Accessory.rotation;
-            Accessory.SetParent(OriginalParent, false);
-            Accessory.SetPositionAndRotation(worldPosition, worldRotation);
-            if (OriginalParent != null && OriginalParent.childCount > 0)
-                Accessory.SetSiblingIndex(Mathf.Clamp(OriginalSiblingIndex, 0,
-                    OriginalParent.childCount - 1));
-            Attached = false;
-        }
+    internal sealed class RagdollJointState
+    {
+        internal CharacterJoint Joint;
+        internal Vector3 Anchor;
+        internal Vector3 ConnectedAnchor;
+        internal Vector3 Axis;
+        internal Vector3 SwingAxis;
+        internal bool AutoConfigureConnectedAnchor;
     }
 
     internal sealed class DragTargetState
@@ -570,6 +673,7 @@ namespace KerbalProportions
         internal RigTarget Target;
         internal RigTarget Source;
         internal TransformEdit Initial;
+        internal Vector3 InitialWorldPosition;
         internal bool Mirrored;
     }
 
@@ -585,8 +689,15 @@ namespace KerbalProportions
             new List<RigTarget>();
         internal readonly Dictionary<string, RigTarget> ByKey =
             new Dictionary<string, RigTarget>(StringComparer.Ordinal);
-        internal readonly List<WearablePropAttachment> WearableProps =
-            new List<WearablePropAttachment>();
+        internal readonly List<RuntimeTargetGroup> Groups =
+            new List<RuntimeTargetGroup>();
+        internal readonly Dictionary<string, Vector3> EditedScaleBaselines =
+            new Dictionary<string, Vector3>(StringComparer.Ordinal);
+        internal readonly List<RagdollJointState> RagdollJointStates =
+            new List<RagdollJointState>();
+        internal bool WasRagdoll;
+        internal bool RagdollRebased;
+        internal int DiscoverySignature;
         internal bool IsAlive
         {
             get
@@ -600,6 +711,13 @@ namespace KerbalProportions
 
         internal void Apply(EditorSettings settings, bool allow)
         {
+            KerbalEVA eva = Owner as KerbalEVA;
+            if (!IsIva && IsPhysicsRagdoll(eva))
+            {
+                foreach (RigTarget target in Targets)
+                    target.HoldLastScaleDuringRagdoll();
+                return;
+            }
             foreach (RigTarget target in Targets)
             {
                 if (target.MatchRevision != settings.Revision)
@@ -609,17 +727,145 @@ namespace KerbalProportions
                         target.DisplayName, out target.MatchedEdit);
                 }
                 if (allow && settings.Enabled && target.HasMatchedEdit)
+                {
+                    Vector3? stableScale = null;
+                    if ((target.MatchedEdit.Scale - Vector3.one).sqrMagnitude >
+                        0.00000001f)
+                    {
+                        Vector3 baseline;
+                        if (!EditedScaleBaselines.TryGetValue(
+                            target.MatchedEdit.Key, out baseline))
+                        {
+                            baseline = target.BaseScale;
+                            EditedScaleBaselines[target.MatchedEdit.Key] = baseline;
+                        }
+                        stableScale = baseline;
+                    }
                     target.Apply(target.MatchedEdit,
-                        settings.AnimationAwareRotation);
+                        settings.AnimationAwareRotation, stableScale);
+                }
                 else target.Restore();
             }
         }
 
         internal void Restore()
         {
-            foreach (RigTarget target in Targets) target.Restore();
-            foreach (WearablePropAttachment attachment in WearableProps)
-                attachment.Restore();
+            RestoreRagdollJoints();
+            foreach (RigTarget target in Targets)
+                target.Restore();
+        }
+
+        internal void UpdateRagdollPhysics(EditorSettings settings, bool allow)
+        {
+            if (IsIva) return;
+            KerbalEVA eva = Owner as KerbalEVA;
+            bool ragdoll = IsPhysicsRagdoll(eva);
+            if (!ragdoll)
+            {
+                if (WasRagdoll)
+                {
+                    RestoreRagdollJoints();
+                    foreach (RigTarget target in Targets)
+                        target.ForgetAppliedPose();
+                    Debug.Log("[KerbalProportions] Ragdoll physics restored for " +
+                        (Owner == null ? "Kerbal" : Owner.name) + ".");
+                }
+                WasRagdoll = false;
+                RagdollRebased = false;
+                return;
+            }
+
+            WasRagdoll = true;
+            if (!allow || settings == null || !settings.Enabled)
+            {
+                RestoreRagdollJoints();
+                RagdollRebased = false;
+                return;
+            }
+            if (RagdollRebased) return;
+            RebaseRagdollJoints();
+        }
+
+        private static bool IsPhysicsRagdoll(KerbalEVA eva)
+        {
+            if (eva == null || !eva.isRagdoll) return false;
+            // KSP leaves isRagdoll set during st_recover even though the
+            // stand-up animator has reclaimed the skeleton. Treat recovery as
+            // animation-owned so profile position/height offsets resume as
+            // soon as the stand-up begins.
+            return eva.fsm == null || eva.st_recover == null ||
+                eva.fsm.CurrentState != eva.st_recover;
+        }
+
+        private void RebaseRagdollJoints()
+        {
+            RagdollJointStates.Clear();
+            CharacterJoint[] joints =
+                Root.GetComponentsInChildren<CharacterJoint>(true);
+            foreach (CharacterJoint joint in joints)
+            {
+                if (joint == null || joint.connectedBody == null) continue;
+                RagdollJointStates.Add(new RagdollJointState {
+                    Joint = joint,
+                    Anchor = joint.anchor,
+                    ConnectedAnchor = joint.connectedAnchor,
+                    Axis = joint.axis,
+                    SwingAxis = joint.swingAxis,
+                    AutoConfigureConnectedAnchor =
+                        joint.autoConfigureConnectedAnchor });
+            }
+
+            int editedTargets = 0;
+            foreach (RigTarget target in Targets)
+                if (target.ApplyLastPoseForRagdoll()) editedTargets++;
+            if (editedTargets == 0)
+            {
+                RagdollJointStates.Clear();
+                RagdollRebased = true;
+                return;
+            }
+            Physics.SyncTransforms();
+
+            float maximumError = 0f;
+            foreach (RagdollJointState state in RagdollJointStates)
+            {
+                CharacterJoint joint = state.Joint;
+                if (joint == null || joint.connectedBody == null) continue;
+                Vector3 pivot = joint.transform.TransformPoint(joint.anchor);
+                Vector3 connectedPivot =
+                    joint.connectedBody.transform.TransformPoint(
+                        joint.connectedAnchor);
+                maximumError = Mathf.Max(maximumError,
+                    Vector3.Distance(pivot, connectedPivot));
+                joint.autoConfigureConnectedAnchor = false;
+                joint.connectedAnchor =
+                    joint.connectedBody.transform.InverseTransformPoint(pivot);
+            }
+            Physics.SyncTransforms();
+            RagdollRebased = true;
+            Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                "[KerbalProportions] Ragdoll rebaked: {0} edited targets, " +
+                "{1} joints, maximum initial anchor error {2:0.0000} m.",
+                editedTargets, RagdollJointStates.Count, maximumError));
+        }
+
+        private void RestoreRagdollJoints()
+        {
+            if (RagdollJointStates.Count == 0) return;
+            foreach (RagdollJointState state in RagdollJointStates)
+            {
+                CharacterJoint joint = state.Joint;
+                if (joint == null) continue;
+                joint.autoConfigureConnectedAnchor = false;
+                joint.anchor = state.Anchor;
+                joint.connectedAnchor = state.ConnectedAnchor;
+                joint.axis = state.Axis;
+                joint.swingAxis = state.SwingAxis;
+                joint.autoConfigureConnectedAnchor =
+                    state.AutoConfigureConnectedAnchor;
+            }
+            Physics.SyncTransforms();
+            RagdollJointStates.Clear();
         }
     }
 
@@ -733,12 +979,16 @@ namespace KerbalProportions
     }
 
     [DefaultExecutionOrder(10000)]
-    [KSPAddon(KSPAddon.Startup.Flight, false)]
+    [KSPAddon(KSPAddon.Startup.EveryScene, false)]
     internal sealed class ProportionsController : MonoBehaviour
     {
-        private const float TargetPanelWidth = 400f;
-        private const float InspectorPanelWidth = 510f;
-        private const float TargetScrollHeight = 390f;
+        private const float TargetPanelWidth = 610f;
+        private const float InspectorPanelWidth = 540f;
+        private const float TargetScrollHeight = 330f;
+        private const float HierarchyWindowWidth = 640f;
+        private const float HierarchyWindowHeight = 760f;
+        private const float ControlsWindowWidth = 570f;
+        private const float ControlsWindowHeight = 690f;
         private readonly List<EditableRig> rigs = new List<EditableRig>();
         private readonly HashSet<int> knownOwners = new HashSet<int>();
         private readonly Dictionary<int, PortraitCameraBinding> portraitCameras =
@@ -746,8 +996,12 @@ namespace KerbalProportions
         private readonly List<EditSnapshot> undo = new List<EditSnapshot>();
         private readonly List<EditSnapshot> redo = new List<EditSnapshot>();
         private EditorSettings settings;
-        private Rect windowRect = new Rect(12f, 25f, 940f, 620f);
+        private Rect hierarchyWindowRect = new Rect(12f, 25f,
+            HierarchyWindowWidth, HierarchyWindowHeight);
+        private Rect controlsWindowRect = new Rect(668f, 25f,
+            ControlsWindowWidth, ControlsWindowHeight);
         private Vector2 targetScroll;
+        private Vector2 groupScroll;
         private readonly HashSet<string> expandedHierarchyKeys =
             new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> initializedHierarchyKeys =
@@ -760,8 +1014,12 @@ namespace KerbalProportions
         private readonly HashSet<string> selectedKeys =
             new HashSet<string>(StringComparer.Ordinal);
         private string rangeAnchorKey = string.Empty;
+        private string groupName = "Accessory group";
+        private string activeGroupId = string.Empty;
         private string profileName = "My Rig";
         private readonly List<string> profileNames = new List<string>();
+        private readonly Dictionary<string, string> profileSources =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private int selectedProfile = -1;
         private string posX = "0", posY = "0", posZ = "0";
         private string rotX = "0", rotY = "0", rotZ = "0";
@@ -773,6 +1031,8 @@ namespace KerbalProportions
         private int inspectorTab;
         private static readonly string[] InspectorTabs =
             { "Pose", "Motion", "Portrait", "Profiles" };
+        private static readonly string[] AxisSpaceModes =
+            { "Local axes", "Surface axes" };
         private EditMode editMode = EditMode.Move;
         private bool mirrorEdit;
         private bool visible;
@@ -797,6 +1057,10 @@ namespace KerbalProportions
         private Vector3 dragPivot;
         private float dragSize;
         private Vector2 dragRotationTangent;
+        private Vector3 dragRotationStart;
+        private bool dragRotationPlaneValid;
+        private bool dragVirtualGroup;
+        private bool hierarchyPanelExpanded = true;
 
         private static string ProfilesPath
         {
@@ -804,10 +1068,10 @@ namespace KerbalProportions
                 "GameData/KerbalProportions/PluginData/profiles.cfg"); }
         }
 
-        private static string BuiltInPresetsPath
+        private static string ProfilesDirectory
         {
             get { return Path.Combine(KSPUtil.ApplicationRootPath,
-                "GameData/KerbalProportions/presets.cfg"); }
+                "GameData/KerbalProportions/PluginData/Profiles"); }
         }
 
         private static string LegacyProfilesPath
@@ -820,6 +1084,7 @@ namespace KerbalProportions
         {
             MigrateLegacyPluginData();
             settings = EditorSettings.Load();
+            ApplySavedWindowLayout();
             if (settings.LoadedLegacyFormat) settings.Save();
             NormalizeLegacyProfileData();
             visible = false;
@@ -827,14 +1092,12 @@ namespace KerbalProportions
             nextScan = 0f;
             RefreshProfileNames();
             GameEvents.onGUIApplicationLauncherReady.Add(CreateToolbarButton);
-            GameEvents.onGUIApplicationLauncherDestroyed.Add(
-                OnToolbarDestroyed);
             if (KSP.UI.Screens.ApplicationLauncher.Ready) CreateToolbarButton();
             Camera.onPreCull += OnCameraPreCull;
             Camera.onPreRender += OnCameraPreRender;
             Camera.onPostRender += OnCameraPostRender;
             CreateLineMaterial();
-            Debug.Log("[KerbalProportions] Version 2.5.1 active.");
+            Debug.Log("[KerbalProportions] Version 2.6.0 active.");
         }
 
         private static void MigrateLegacyPluginData()
@@ -917,6 +1180,39 @@ namespace KerbalProportions
             bool internalCamera = IsInternalCamera();
             RefreshRigContext(internalCamera);
             ApplyRigs(true);
+        }
+
+        private static bool IsKerbalRenderer(Transform root, Renderer renderer,
+            bool checkBounds)
+        {
+            if (root == null || renderer == null ||
+                (renderer.transform != root &&
+                !renderer.transform.IsChildOf(root))) return false;
+            string rendererType = renderer.GetType().Name;
+            if (renderer is LineRenderer || renderer is TrailRenderer ||
+                rendererType == "ParticleSystemRenderer") return false;
+            string name = renderer.gameObject.name ?? string.Empty;
+            string lower = name.ToLowerInvariant();
+            if (lower == "quad" || lower.Contains("trajector") ||
+                lower.Contains("screenspaceshadow") ||
+                lower.Contains("shadowmanager")) return false;
+            if (!checkBounds) return true;
+            Bounds candidate = renderer.bounds;
+            if (candidate.extents.magnitude > 4f) return false;
+            Vector3 localCenter = root.InverseTransformPoint(candidate.center);
+            return localCenter.sqrMagnitude <= 16f;
+        }
+
+        private void FixedUpdate()
+        {
+            if (settings == null || !HighLogic.LoadedSceneIsFlight) return;
+            foreach (EditableRig rig in rigs)
+            {
+                if (!rig.IsAlive) continue;
+                bool allow = rig.IsIva ? settings.EnableIva :
+                    settings.EnableEva;
+                rig.UpdateRagdollPhysics(settings, allow);
+            }
         }
 
         private void ApplyRigs(bool removeDead)
@@ -1038,24 +1334,54 @@ namespace KerbalProportions
                 binding.Restore();
         }
 
+        private static int RigDiscoverySignature(Transform root)
+        {
+            if (root == null) return 0;
+            unchecked
+            {
+                int signature = 17;
+                foreach (Renderer renderer in
+                    root.GetComponentsInChildren<Renderer>(true))
+                    if (renderer != null)
+                        signature = signature * 31 + renderer.GetInstanceID();
+                foreach (Light light in root.GetComponentsInChildren<Light>(true))
+                    if (light != null)
+                        signature = signature * 31 + light.GetInstanceID();
+                foreach (Collider collider in
+                    root.GetComponentsInChildren<Collider>(true))
+                    if (collider != null)
+                        signature = signature * 31 + collider.GetInstanceID();
+                return signature;
+            }
+        }
+
         private void AddRig(Component owner, Transform root, bool isIva)
         {
             if (owner == null || root == null) return;
             int ownerId = owner.GetInstanceID();
+            int signature = RigDiscoverySignature(root);
             if (knownOwners.Contains(ownerId))
             {
-                foreach (EditableRig existing in rigs)
-                    if (existing.OwnerId == ownerId && existing.Owner == owner)
-                    {
-                        RefreshWearablePropAttachments(existing);
-                        return;
-                    }
-                // Recover from an interrupted/dead-rig cleanup instead of
-                // permanently suppressing this Unity instance ID.
+                EditableRig existing = null;
+                foreach (EditableRig candidate in rigs)
+                    if (candidate.OwnerId == ownerId)
+                    { existing = candidate; break; }
+                if (existing != null &&
+                    existing.DiscoverySignature == signature) return;
+                KerbalEVA eva = owner as KerbalEVA;
+                if (existing != null && eva != null && eva.isRagdoll) return;
+                if (existing != null)
+                {
+                    existing.Restore();
+                    rigs.Remove(existing);
+                }
                 knownOwners.Remove(ownerId);
+                Debug.Log("[KerbalProportions] Runtime rig hierarchy changed; " +
+                    "rediscovering " + owner.name + ".");
             }
             EditableRig rig = new EditableRig { Owner = owner, Root = root,
-                IsIva = isIva, OwnerId = ownerId };
+                IsIva = isIva, OwnerId = ownerId,
+                DiscoverySignature = signature };
             HashSet<Transform> bones = new HashSet<Transform>();
             foreach (SkinnedMeshRenderer renderer in
                 root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
@@ -1064,12 +1390,31 @@ namespace KerbalProportions
             foreach (Transform bone in bones)
                 AddTarget(rig, bone, "Bone");
             foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
-                if (renderer.transform != root && !bones.Contains(renderer.transform))
+                if (renderer.transform != root && !bones.Contains(renderer.transform) &&
+                    IsKerbalRenderer(root, renderer, false))
                     AddTarget(rig, renderer.transform, "Mesh");
+            // Associate physics shapes with the nearest editable visual target.
+            // Collider-only transforms remain diagnostic rather than editable.
+            foreach (Collider collider in
+                root.GetComponentsInChildren<Collider>(true))
+            {
+                Transform cursor = collider.transform;
+                RigTarget colliderTarget = null;
+                while (cursor != null && cursor != root)
+                {
+                    if (rig.ByKey.TryGetValue(BuildKey(root, cursor),
+                        out colliderTarget)) break;
+                    cursor = cursor.parent;
+                }
+                if (colliderTarget != null)
+                    colliderTarget.ColliderBindings.Add(
+                        CreateColliderBinding(root, collider));
+            }
             Dictionary<Transform, Matrix4x4> restToRoot =
                 new Dictionary<Transform, Matrix4x4>();
             foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
             {
+                if (!IsKerbalRenderer(root, renderer, false)) continue;
                 RigTarget rendererTarget;
                 if (rig.ByKey.TryGetValue(BuildKey(root, renderer.transform),
                     out rendererTarget) && rendererTarget.Category == "Mesh")
@@ -1109,6 +1454,7 @@ namespace KerbalProportions
                 target.ReferenceRotation = localRest.rotation;
             }
             BuildTargetHierarchy(rig);
+            BuildTargetGroups(rig);
             if (rig.Targets.Count == 0) return;
             rigs.Add(rig);
             knownOwners.Add(ownerId);
@@ -1120,68 +1466,19 @@ namespace KerbalProportions
                         expandedHierarchyKeys.Add(stateKey);
                 }
             LogRigMatches(rig);
-            RefreshWearablePropAttachments(rig);
         }
 
-        private static void RefreshWearablePropAttachments(EditableRig rig)
+        private static ColliderBinding CreateColliderBinding(Transform root,
+            Collider collider)
         {
-            for (int index = rig.WearableProps.Count - 1; index >= 0; index--)
-            {
-                WearablePropAttachment attachment = rig.WearableProps[index];
-                if (attachment.IsAlive) continue;
-                attachment.Restore();
-                rig.WearableProps.RemoveAt(index);
-            }
-
-            foreach (MonoBehaviour behaviour in
-                rig.Root.GetComponentsInChildren<MonoBehaviour>(true))
-            {
-                if (behaviour == null || behaviour.GetType().FullName !=
-                    "WearableProps.TrackRigidbody") continue;
-                FieldInfo field = behaviour.GetType().GetField("attachTransform",
-                    BindingFlags.Instance | BindingFlags.Public);
-                if (field == null) continue;
-                Transform anchor = field.GetValue(behaviour) as Transform;
-                Transform accessory = behaviour.transform;
-                if (anchor == null || accessory == null || anchor == accessory ||
-                    !IsInHierarchy(anchor, rig.Root) ||
-                    !IsInHierarchy(accessory, rig.Root)) continue;
-
-                int trackerId = behaviour.GetInstanceID();
-                WearablePropAttachment existing = null;
-                foreach (WearablePropAttachment candidate in rig.WearableProps)
-                    if (candidate.TrackerId == trackerId)
-                    { existing = candidate; break; }
-                if (existing != null)
-                {
-                    if (existing.Matches(behaviour, anchor)) continue;
-                    existing.Restore();
-                    rig.WearableProps.Remove(existing);
-                }
-                // A newer WearableProps build may already parent props to their
-                // attach bones, in which case no compatibility adjustment is
-                // needed and double-parenting would be harmful.
-                if (accessory.IsChildOf(anchor)) continue;
-                WearablePropAttachment attachment =
-                    new WearablePropAttachment { Tracker = behaviour,
-                        TrackerId = trackerId, Accessory = accessory,
-                        Anchor = anchor };
-                if (!attachment.Attach()) continue;
-                rig.WearableProps.Add(attachment);
-                Debug.Log("[KerbalProportions] Wearable prop follows scale of " +
-                    anchor.name + ": " + accessory.name);
-            }
-        }
-
-        private static bool IsInHierarchy(Transform transform, Transform root)
-        {
-            Transform cursor = transform;
-            while (cursor != null)
-            {
-                if (cursor == root) return true;
-                cursor = cursor.parent;
-            }
-            return false;
+            Collider[] components = collider.transform.GetComponents<Collider>();
+            int componentIndex = Array.IndexOf(components, collider);
+            string typeName = collider.GetType().Name;
+            ColliderBinding binding = new ColliderBinding { Collider = collider,
+                Key = BuildKey(root, collider.transform) + "/@" + typeName +
+                    "[" + componentIndex + "]",
+                Name = collider.transform.name + " (" + typeName + ")" };
+            return binding;
         }
 
         private void LogRigMatches(EditableRig rig)
@@ -1291,6 +1588,199 @@ namespace KerbalProportions
                     first.DisplayName, second.DisplayName,
                     StringComparison.OrdinalIgnoreCase);
             });
+        }
+
+        private void BuildTargetGroups(EditableRig rig)
+        {
+            rig.Groups.Clear();
+            DiscoverWearableTargetGroups(rig);
+            foreach (TargetGroupDefinition definition in settings.Groups)
+            {
+                RuntimeTargetGroup group = new RuntimeTargetGroup {
+                    Id = "manual:" + definition.Id,
+                    Name = definition.Name, Automatic = false };
+                HashSet<string> added = new HashSet<string>(
+                    StringComparer.Ordinal);
+                foreach (TargetGroupMemberDefinition member in
+                    definition.Members)
+                {
+                    RigTarget target = ResolveGroupMember(rig, member);
+                    if (target != null && added.Add(target.Key))
+                        group.Members.Add(target);
+                }
+                RemoveNestedGroupMembers(group);
+                if (group.Members.Count >= 2) rig.Groups.Add(group);
+            }
+        }
+
+        private static RigTarget ResolveGroupMember(EditableRig rig,
+            TargetGroupMemberDefinition member)
+        {
+            RigTarget exact;
+            if (!string.IsNullOrEmpty(member.Key) &&
+                rig.ByKey.TryGetValue(member.Key, out exact)) return exact;
+            RigTarget best = null; int bestScore = int.MinValue;
+            foreach (RigTarget candidate in rig.Targets)
+            {
+                if (!string.Equals(candidate.DisplayName, member.Name,
+                    StringComparison.OrdinalIgnoreCase)) continue;
+                int score = CommonSuffixLength(candidate.Key,
+                    member.Key ?? string.Empty);
+                if (best == null || score > bestScore)
+                { best = candidate; bestScore = score; }
+            }
+            return best;
+        }
+
+        private static void DiscoverWearableTargetGroups(EditableRig rig)
+        {
+            Dictionary<string, RuntimeTargetGroup> discovered =
+                new Dictionary<string, RuntimeTargetGroup>(
+                    StringComparer.OrdinalIgnoreCase);
+            Component[] components = rig.Root.GetComponentsInChildren<Component>(
+                true);
+            foreach (Component controller in components)
+            {
+                if (controller == null || controller.GetType().Name.IndexOf(
+                    "PropController", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                FieldInfo[] fields = controller.GetType().GetFields(
+                    BindingFlags.Instance | BindingFlags.Public |
+                    BindingFlags.NonPublic);
+                foreach (FieldInfo field in fields)
+                {
+                    string fieldName = field.Name ?? string.Empty;
+                    if (fieldName.IndexOf("prop", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        fieldName.IndexOf("attachment",
+                            StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    object value;
+                    try { value = field.GetValue(controller); }
+                    catch { continue; }
+                    IEnumerable collection = value as IEnumerable;
+                    if (collection == null || value is string) continue;
+                    foreach (object item in collection)
+                        AddWearableGroupItem(rig, item, discovered);
+                }
+            }
+            foreach (RuntimeTargetGroup group in discovered.Values)
+            {
+                RemoveNestedGroupMembers(group);
+                if (group.Members.Count >= 2) rig.Groups.Add(group);
+            }
+        }
+
+        private static void RemoveNestedGroupMembers(RuntimeTargetGroup group)
+        {
+            HashSet<Transform> transforms = new HashSet<Transform>();
+            foreach (RigTarget member in group.Members)
+                if (member.Transform != null) transforms.Add(member.Transform);
+            group.Members.RemoveAll(delegate(RigTarget member) {
+                Transform parent = member.Transform == null ? null :
+                    member.Transform.parent;
+                while (parent != null)
+                {
+                    if (transforms.Contains(parent)) return true;
+                    parent = parent.parent;
+                }
+                return false;
+            });
+        }
+
+        private static void AddWearableGroupItem(EditableRig rig, object item,
+            Dictionary<string, RuntimeTargetGroup> discovered)
+        {
+            if (item == null) return;
+            string name = ReadAccessoryName(item);
+            if (string.IsNullOrEmpty(name)) return;
+            HashSet<Transform> references = new HashSet<Transform>();
+            CollectAccessoryTransforms(item, references, 0,
+                new HashSet<object>());
+            if (references.Count == 0) return;
+            string id = "auto:" + name.ToLowerInvariant();
+            RuntimeTargetGroup group;
+            if (!discovered.TryGetValue(id, out group))
+            {
+                group = new RuntimeTargetGroup { Id = id,
+                    Name = FriendlyName(name), Automatic = true };
+                discovered.Add(id, group);
+            }
+            HashSet<string> existing = new HashSet<string>(
+                StringComparer.Ordinal);
+            foreach (RigTarget member in group.Members) existing.Add(member.Key);
+            foreach (RigTarget target in rig.Targets)
+            {
+                if (target.Transform == null || existing.Contains(target.Key))
+                    continue;
+                foreach (Transform reference in references)
+                    if (reference != null && reference != rig.Root &&
+                        (target.Transform == reference ||
+                        target.Transform.IsChildOf(reference) ||
+                        reference.IsChildOf(target.Transform)))
+                    {
+                        group.Members.Add(target); existing.Add(target.Key); break;
+                    }
+            }
+        }
+
+        private static string ReadAccessoryName(object item)
+        {
+            Type type = item.GetType();
+            string[] preferred = { "moduleId", "partName", "propName", "name" };
+            foreach (string preferredName in preferred)
+            {
+                FieldInfo field = type.GetField(preferredName,
+                    BindingFlags.Instance | BindingFlags.Public |
+                    BindingFlags.NonPublic | BindingFlags.IgnoreCase);
+                if (field != null && field.FieldType == typeof(string))
+                {
+                    try
+                    {
+                        string value = field.GetValue(item) as string;
+                        if (!string.IsNullOrEmpty(value)) return value;
+                    }
+                    catch { }
+                }
+            }
+            UnityEngine.Object unityObject = item as UnityEngine.Object;
+            if (unityObject != null && !string.IsNullOrEmpty(unityObject.name))
+                return unityObject.name;
+            return string.Empty;
+        }
+
+        private static void CollectAccessoryTransforms(object value,
+            HashSet<Transform> result, int depth, HashSet<object> visited)
+        {
+            if (value == null || depth > 2 || !visited.Add(value)) return;
+            Transform transform = value as Transform;
+            GameObject gameObject = value as GameObject;
+            Component component = value as Component;
+            if (transform != null) result.Add(transform);
+            else if (gameObject != null) result.Add(gameObject.transform);
+            else if (component != null) result.Add(component.transform);
+            Type type = value.GetType();
+            if (type.IsPrimitive || type.IsEnum || value is string) return;
+            foreach (FieldInfo field in type.GetFields(BindingFlags.Instance |
+                BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                string name = field.Name ?? string.Empty;
+                if (name.IndexOf("prop", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    name.IndexOf("model", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    name.IndexOf("object", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    name.IndexOf("transform", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    name.IndexOf("render", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    name.IndexOf("mesh", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                object child;
+                try { child = field.GetValue(value); }
+                catch { continue; }
+                IEnumerable collection = child as IEnumerable;
+                if (collection != null && !(child is string))
+                    foreach (object entry in collection)
+                        CollectAccessoryTransforms(entry, result, depth + 1,
+                            visited);
+                else CollectAccessoryTransforms(child, result, depth + 1,
+                    visited);
+            }
         }
 
         private static void RecordTransformOrder(Transform transform,
@@ -1411,8 +1901,13 @@ namespace KerbalProportions
         {
             if (!visible || settings == null) return;
             GUI.skin = HighLogic.Skin;
-            windowRect = GUILayout.Window(windowId, windowRect, DrawWindow,
-                "Kerbal Proportions - Rig Editor");
+            hierarchyWindowRect = GUILayout.Window(windowId,
+                hierarchyWindowRect, DrawHierarchyWindow,
+                "Kerbal Proportions - Hierarchy");
+            controlsWindowRect = GUILayout.Window(windowId + 1,
+                controlsWindowRect, DrawControlsWindow,
+                "Kerbal Proportions - Controls");
+            CaptureWindowPositions();
             if (hoverTarget != null)
             {
                 Vector3 mouse = Input.mousePosition;
@@ -1422,7 +1917,35 @@ namespace KerbalProportions
             }
         }
 
-        private void DrawWindow(int id)
+        private void ApplySavedWindowLayout()
+        {
+            hierarchyWindowRect = new Rect(settings.HierarchyWindowX,
+                settings.HierarchyWindowY, HierarchyWindowWidth,
+                HierarchyWindowHeight);
+            controlsWindowRect = new Rect(settings.ControlsWindowX,
+                settings.ControlsWindowY, ControlsWindowWidth,
+                ControlsWindowHeight);
+            ClampWindowToScreen(ref hierarchyWindowRect);
+            ClampWindowToScreen(ref controlsWindowRect);
+        }
+
+        private static void ClampWindowToScreen(ref Rect rect)
+        {
+            rect.x = Mathf.Clamp(rect.x, 0f,
+                Mathf.Max(0f, Screen.width - rect.width));
+            rect.y = Mathf.Clamp(rect.y, 0f,
+                Mathf.Max(0f, Screen.height - rect.height));
+        }
+
+        private void CaptureWindowPositions()
+        {
+            settings.HierarchyWindowX = hierarchyWindowRect.x;
+            settings.HierarchyWindowY = hierarchyWindowRect.y;
+            settings.ControlsWindowX = controlsWindowRect.x;
+            settings.ControlsWindowY = controlsWindowRect.y;
+        }
+
+        private void DrawControlsWindow(int id)
         {
             GUILayout.BeginHorizontal();
             bool previousEnabled = settings.Enabled;
@@ -1439,11 +1962,13 @@ namespace KerbalProportions
                 settings.EnableIva != previousIva)
             {
                 if (!settings.Enabled) RestorePortraitCameras();
+                CaptureWindowPositions();
                 settings.Save();
             }
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("Save current", GUILayout.Width(95)))
             {
+                CaptureWindowPositions();
                 settings.Save();
                 ScreenMessages.PostScreenMessage("Kerbal Proportions rig saved", 2f,
                     ScreenMessageStyle.UPPER_CENTER);
@@ -1452,23 +1977,52 @@ namespace KerbalProportions
             GUILayout.EndHorizontal();
 
             EditableRig primary = PrimaryRig();
-            GUILayout.Label(primary == null ? "No editable Kerbal is currently loaded" :
-                "Editing " + (primary.IsIva ? "IVA: " : "EVA: ") +
-                primary.Owner.name + "  |  " + primary.Targets.Count +
-                " targets  |  viewport click selects nearby bones");
-
-            GUILayout.BeginHorizontal();
-            DrawTargetPanel(primary);
-            DrawInspectorPanel();
+            GUILayout.BeginHorizontal(HighLogic.Skin.box);
+            GUILayout.Label(primary == null ?
+                "No editable Kerbal is currently loaded" :
+                (primary.IsIva ? "IVA  " : "EVA  ") + primary.Owner.name +
+                (selectedKeys.Count > 0 ? "   |   " + selectedKeys.Count +
+                    " selected" : "   |   select in world"));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("W move   E rotate   R scale");
             GUILayout.EndHorizontal();
+            DrawInspectorPanel();
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 24f));
+        }
+
+        private void DrawHierarchyWindow(int id)
+        {
+            EditableRig primary = PrimaryRig();
+            GUILayout.BeginHorizontal(HighLogic.Skin.box);
+            GUILayout.Label(primary == null ? "No editable Kerbal loaded" :
+                (primary.IsIva ? "IVA  " : "EVA  ") + primary.Owner.name +
+                "   |   " + primary.Targets.Count + " targets");
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("Close editor", GUILayout.Width(92)))
+                ToggleWindow(false);
+            GUILayout.EndHorizontal();
+            DrawTargetPanel(primary);
             GUI.DragWindow(new Rect(0f, 0f, 10000f, 24f));
         }
 
         private void DrawTargetPanel(EditableRig rig)
         {
             GUILayout.BeginVertical(GUILayout.Width(TargetPanelWidth));
-            GUILayout.Label("Bones and body parts" + (selectedKeys.Count > 0 ?
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Hierarchy" + (selectedKeys.Count > 0 ?
                 "  |  " + selectedKeys.Count + " selected" : string.Empty));
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(hierarchyPanelExpanded ? "Collapse" :
+                "Expand", GUILayout.Width(76)))
+                hierarchyPanelExpanded = !hierarchyPanelExpanded;
+            GUILayout.EndHorizontal();
+            if (!hierarchyPanelExpanded)
+            {
+                GUILayout.Label("Hierarchy hidden; select directly in the " +
+                    "world or expand this panel.");
+                GUILayout.EndVertical();
+                return;
+            }
             GUILayout.BeginHorizontal();
             string previousSearch = search ?? string.Empty;
             search = GUILayout.TextField(previousSearch);
@@ -1484,6 +2038,25 @@ namespace KerbalProportions
             GUI.enabled = true;
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
+            bool previousBones = settings.ShowBones;
+            bool previousMeshes = settings.ShowMeshes;
+            bool previousColliders = settings.ShowColliders;
+            settings.ShowBones = GUILayout.Toggle(settings.ShowBones,
+                "Bones", GUILayout.Width(105));
+            settings.ShowMeshes = GUILayout.Toggle(settings.ShowMeshes,
+                "Meshes", GUILayout.Width(105));
+            settings.ShowColliders = GUILayout.Toggle(settings.ShowColliders,
+                "Colliders", GUILayout.Width(115));
+            if (settings.ShowBones != previousBones ||
+                settings.ShowMeshes != previousMeshes ||
+                settings.ShowColliders != previousColliders)
+            {
+                EndDrag(); ClearSelection(); hoverTarget = null; hoverRig = null;
+                targetScroll = Vector2.zero;
+                settings.Save();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
             GUI.enabled = rig != null;
             if (GUILayout.Button("Expand all")) SetAllHierarchyExpanded(rig,
                 true);
@@ -1491,7 +2064,9 @@ namespace KerbalProportions
                 false);
             GUI.enabled = true;
             GUILayout.EndHorizontal();
+            DrawTargetGroups(rig);
             BuildVisibleTargetOrder(rig);
+            GUILayout.Label("Gold bone | cyan mesh | magenta collider");
             targetScroll.x = 0f;
             targetScroll = GUILayout.BeginScrollView(targetScroll,
                 GUIStyle.none, HighLogic.Skin.verticalScrollbar,
@@ -1511,6 +2086,106 @@ namespace KerbalProportions
                 Redo();
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
+        }
+
+        private void DrawTargetGroups(EditableRig rig)
+        {
+            GUILayout.Space(5f);
+            GUILayout.Label("Virtual accessory groups");
+            if (rig == null || rig.Groups.Count == 0)
+                GUILayout.Label("No groups yet. Multi-select accessory pieces " +
+                    "and create one below.");
+            else
+            {
+                groupScroll = GUILayout.BeginScrollView(groupScroll,
+                    GUILayout.Height(Mathf.Min(92f, rig.Groups.Count * 25f + 4f)));
+                foreach (RuntimeTargetGroup group in rig.Groups)
+                {
+                    bool active = group.Id == activeGroupId;
+                    EnsureTreeStyles();
+                    GUIStyle style = active ? treeSelectedStyle :
+                        treeButtonStyle;
+                    string label = (group.Automatic ? "[Auto] " : string.Empty) +
+                        group.Name + "  (" + group.Members.Count + ")";
+                    if (GUILayout.Button(label, style, GUILayout.Height(23f)))
+                        SelectRuntimeGroup(group);
+                }
+                GUILayout.EndScrollView();
+            }
+            GUILayout.BeginHorizontal();
+            groupName = GUILayout.TextField(groupName ?? string.Empty,
+                GUILayout.MinWidth(150f));
+            GUI.enabled = rig != null && selectedKeys.Count >= 2;
+            if (GUILayout.Button("Create from selection", GUILayout.Width(150f)))
+                CreateGroupFromSelection(rig);
+            GUI.enabled = rig != null && ActiveManualGroupDefinition() != null;
+            if (GUILayout.Button("Delete group", GUILayout.Width(92f)))
+                DeleteActiveGroup();
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+        }
+
+        private void SelectRuntimeGroup(RuntimeTargetGroup group)
+        {
+            if (group == null || group.Members.Count == 0) return;
+            selectedKeys.Clear();
+            foreach (RigTarget member in group.Members)
+                selectedKeys.Add(member.Key);
+            selectedKey = group.Members[0].Key;
+            rangeAnchorKey = selectedKey;
+            activeGroupId = group.Id;
+            RigTarget primary = SelectedTarget();
+            if (primary != null)
+                SyncFields(settings.GetOrCreate(primary.Key,
+                    primary.DisplayName));
+        }
+
+        private void CreateGroupFromSelection(EditableRig rig)
+        {
+            List<RigTarget> members = SelectedTargets(true);
+            if (rig == null || members.Count < 2) return;
+            string name = (groupName ?? string.Empty).Trim();
+            if (name.Length == 0) name = "Accessory group";
+            TargetGroupDefinition definition = new TargetGroupDefinition {
+                Id = Guid.NewGuid().ToString("N"), Name = name };
+            foreach (RigTarget target in members)
+                definition.Members.Add(new TargetGroupMemberDefinition {
+                    Key = target.Key, Name = target.DisplayName });
+            settings.Groups.Add(definition);
+            RebuildAllTargetGroups();
+            RuntimeTargetGroup runtime = rig.Groups.Find(
+                delegate(RuntimeTargetGroup item) {
+                    return item.Id == "manual:" + definition.Id; });
+            SelectRuntimeGroup(runtime);
+            settings.Save();
+            ScreenMessages.PostScreenMessage("Kerbal Proportions group created: " +
+                name, 2f, ScreenMessageStyle.UPPER_CENTER);
+        }
+
+        private TargetGroupDefinition ActiveManualGroupDefinition()
+        {
+            const string prefix = "manual:";
+            if (string.IsNullOrEmpty(activeGroupId) ||
+                !activeGroupId.StartsWith(prefix,
+                    StringComparison.Ordinal)) return null;
+            string id = activeGroupId.Substring(prefix.Length);
+            return settings.Groups.Find(delegate(TargetGroupDefinition item) {
+                return item.Id == id; });
+        }
+
+        private void DeleteActiveGroup()
+        {
+            TargetGroupDefinition definition = ActiveManualGroupDefinition();
+            if (definition == null) return;
+            settings.Groups.Remove(definition);
+            activeGroupId = string.Empty;
+            RebuildAllTargetGroups();
+            settings.Save();
+        }
+
+        private void RebuildAllTargetGroups()
+        {
+            foreach (EditableRig rig in rigs) BuildTargetGroups(rig);
         }
 
         private void BuildVisibleTargetOrder(EditableRig rig)
@@ -1538,9 +2213,10 @@ namespace KerbalProportions
         private void CollectExpandedTargets(EditableRig rig, RigTarget target)
         {
             if (target == null) return;
-            visibleTargetOrder.Add(target);
-            if (!expandedHierarchyKeys.Contains(HierarchyStateKey(rig,
-                target))) return;
+            bool visible = MatchesTypeFilter(target);
+            if (visible) visibleTargetOrder.Add(target);
+            if (visible && !expandedHierarchyKeys.Contains(HierarchyStateKey(
+                rig, target))) return;
             foreach (RigTarget child in target.Children)
                 CollectExpandedTargets(rig, child);
         }
@@ -1561,7 +2237,7 @@ namespace KerbalProportions
             bool matches;
             if (target == null || !subtreeMatches.TryGetValue(target,
                 out matches) || !matches) return;
-            visibleTargetOrder.Add(target);
+            if (MatchesTypeFilter(target)) visibleTargetOrder.Add(target);
             foreach (RigTarget child in target.Children)
                 CollectSearchTargets(child, subtreeMatches);
         }
@@ -1570,12 +2246,13 @@ namespace KerbalProportions
         {
             bool searching = !string.IsNullOrEmpty(
                 (search ?? string.Empty).Trim());
-            bool hasChildren = target.Children.Count > 0;
+            bool hasChildren = HasFilteredDescendant(target);
             string stateKey = HierarchyStateKey(rig, target);
             bool expanded = searching ||
                 expandedHierarchyKeys.Contains(stateKey);
             GUILayout.BeginHorizontal();
-            float indentation = Mathf.Min(target.HierarchyDepth, 12) * 11f;
+            int filteredDepth = FilteredDepth(target);
+            float indentation = Mathf.Min(filteredDepth, 12) * 11f;
             GUILayout.Space(indentation);
             if (hasChildren)
             {
@@ -1602,14 +2279,16 @@ namespace KerbalProportions
                 if (hiddenSelected > 0) changed += "  (" + hiddenSelected +
                     " selected below)";
             }
-            string category = target.HierarchyDepth == 0 ?
-                (target.Category == "Bone" ? "[ROOT B] " : "[ROOT M] ") :
-                (target.Category == "Bone" ? "[B] " : "[M] ");
+            string type = target.Category == "Bone" ? "B" : "M";
+            if (target.ColliderBindings.Count > 0) type += "+C";
+            string category = filteredDepth == 0 ?
+                "[ROOT " + type + "] " : "[" + type + "] ";
             EnsureTreeStyles();
             GUIStyle style = selected ? treeSelectedStyle : treeButtonStyle;
             GUIContent content = new GUIContent(category +
                 FriendlyName(target.DisplayName) + changed, target.Key);
-            float buttonWidth = Mathf.Max(150f, 344f - indentation);
+            float buttonWidth = Mathf.Max(150f,
+                TargetPanelWidth - 66f - indentation);
             if (GUILayout.Button(content, style, GUILayout.Width(buttonWidth),
                 GUILayout.Height(23)))
                 SelectTarget(target,
@@ -1642,6 +2321,35 @@ namespace KerbalProportions
             return count;
         }
 
+        private bool MatchesTypeFilter(RigTarget target)
+        {
+            if (target == null) return false;
+            if (target.ColliderBindings.Count > 0)
+                return settings.ShowColliders;
+            return target.Category == "Bone" ? settings.ShowBones :
+                settings.ShowMeshes;
+        }
+
+        private bool HasFilteredDescendant(RigTarget target)
+        {
+            foreach (RigTarget child in target.Children)
+                if (MatchesTypeFilter(child) || HasFilteredDescendant(child))
+                    return true;
+            return false;
+        }
+
+        private int FilteredDepth(RigTarget target)
+        {
+            int depth = 0;
+            RigTarget parent = target == null ? null : target.ParentTarget;
+            while (parent != null)
+            {
+                if (MatchesTypeFilter(parent)) depth++;
+                parent = parent.ParentTarget;
+            }
+            return depth;
+        }
+
         private void SetAllHierarchyExpanded(EditableRig rig, bool expanded)
         {
             if (rig == null) return;
@@ -1672,13 +2380,14 @@ namespace KerbalProportions
             RigTarget target = SelectedTarget();
             inspectorTab = GUILayout.Toolbar(inspectorTab, InspectorTabs,
                 GUILayout.Height(28));
-            GUILayout.Space(4);
+            GUILayout.Space(10);
             if (inspectorTab <= 1)
             {
                 GUILayout.Label(target == null ? "Select a target" :
                     (selectedKeys.Count > 1 ? selectedKeys.Count +
                     " selected - primary: " : target.Category + ": ") +
                     target.DisplayName);
+                GUILayout.Space(7);
                 GUILayout.BeginHorizontal();
                 if (ModeButton("Move (W)", EditMode.Move))
                     editMode = EditMode.Move;
@@ -1687,16 +2396,26 @@ namespace KerbalProportions
                 if (ModeButton("Scale (R)", EditMode.Scale))
                     editMode = EditMode.Scale;
                 GUILayout.EndHorizontal();
+                GUILayout.Space(9);
                 GUILayout.BeginHorizontal();
                 bool previousLocalSpace = settings.LocalSpace;
-                settings.LocalSpace = GUILayout.Toggle(settings.LocalSpace,
-                    "Local axes", GUILayout.Width(130));
+                GUI.enabled = editMode != EditMode.Scale;
+                int axisSpace = GUILayout.Toolbar(settings.LocalSpace ? 0 : 1,
+                    AxisSpaceModes, GUILayout.Width(260));
+                settings.LocalSpace = axisSpace == 0;
+                GUI.enabled = true;
                 mirrorEdit = GUILayout.Toggle(mirrorEdit, "Mirror L/R",
                     GUILayout.Width(130));
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 if (settings.LocalSpace != previousLocalSpace)
                     settings.Save();
+                if (editMode == EditMode.Scale)
+                {
+                    GUILayout.Space(5);
+                    GUILayout.Label("Scale uses target-local X / Y / Z axes.");
+                }
+                GUILayout.Space(9);
                 GUILayout.BeginHorizontal();
                 GUILayout.Label("Gizmo size", GUILayout.Width(80));
                 float previousGizmoSize = settings.GizmoSize;
@@ -1708,7 +2427,7 @@ namespace KerbalProportions
                 GUILayout.Label(settings.GizmoSize.ToString("0.00",
                     CultureInfo.InvariantCulture) + "x", GUILayout.Width(48));
                 GUILayout.EndHorizontal();
-                GUILayout.Space(5);
+                GUILayout.Space(12);
             }
             if (inspectorTab == 0) DrawPoseTab(target);
             else if (inspectorTab == 1) DrawAnimationTab(target);
@@ -1722,18 +2441,23 @@ namespace KerbalProportions
             GUI.enabled = target != null;
             GUILayout.BeginVertical(HighLogic.Skin.box);
             GUILayout.Label("Pose offsets");
+            GUILayout.Space(8);
             GUILayout.Label("Position (local meters)");
             DrawVectorFields(ref posX, ref posY, ref posZ);
+            GUILayout.Space(9);
             GUILayout.Label("Rotation (degrees)");
             DrawVectorFields(ref rotX, ref rotY, ref rotZ);
+            GUILayout.Space(9);
             GUILayout.Label("Scale multiplier");
             DrawVectorFields(ref sclX, ref sclY, ref sclZ);
+            GUILayout.Space(11);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Apply values")) ApplyNumeric();
             if (GUILayout.Button("Reset selected")) ResetSelected();
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
             GUI.enabled = true;
+            GUILayout.Space(10);
             GUILayout.Label("Viewport: W move, E rotate, R scale. " +
                 "Ctrl-click adds targets; Shift-click selects a range.");
         }
@@ -1748,11 +2472,15 @@ namespace KerbalProportions
             if (settings.AnimationAwareRotation != previousAnimationAware)
                 settings.Save();
             GUI.enabled = target != null;
-            GUILayout.Space(5);
+            GUILayout.Space(12);
             GUILayout.Label("Animation rotation strength (rest-local axes)");
+            GUILayout.Space(6);
             DrawAnimationInfluenceSlider("X / red", 0);
+            GUILayout.Space(5);
             DrawAnimationInfluenceSlider("Y / green", 1);
+            GUILayout.Space(5);
             DrawAnimationInfluenceSlider("Z / blue", 2);
+            GUILayout.Space(11);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Stock motion (100%)"))
                 SetAnimationInfluence(Vector3.one);
@@ -1761,6 +2489,7 @@ namespace KerbalProportions
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
             GUI.enabled = true;
+            GUILayout.Space(10);
             GUILayout.Label("100% keeps the stock animation; 0% removes that " +
                 "axis from the selected bone. For lateral leg swing, start with " +
                 "the hip/upper-leg X axis. Parent + child restrictions compound.");
@@ -1769,16 +2498,8 @@ namespace KerbalProportions
         private void DrawProfilesTab()
         {
             GUILayout.BeginVertical(HighLogic.Skin.box);
-            GUILayout.Label("Built-in presets");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Stock")) LoadStockPreset();
-            bool previousEnabled = GUI.enabled;
-            GUI.enabled = previousEnabled && File.Exists(BuiltInPresetsPath);
-            if (GUILayout.Button("Humanoid")) LoadBuiltInPreset("Humanoid");
-            GUI.enabled = previousEnabled;
-            GUILayout.EndHorizontal();
-            GUILayout.Space(6);
-            GUILayout.Label("Custom profiles");
+            GUILayout.Label("Profiles");
+            GUILayout.Space(8);
             if (profileNames.Count > 0)
             {
                 int chosen = GUILayout.SelectionGrid(selectedProfile,
@@ -1790,34 +2511,42 @@ namespace KerbalProportions
                     profileName = profileNames[chosen];
                 }
             }
-            else GUILayout.Label("No custom profiles saved yet.");
+            GUILayout.Space(8);
             profileName = GUILayout.TextField(profileName ?? string.Empty);
+            GUILayout.Space(9);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Save profile")) SaveProfile();
+            if (GUILayout.Button("Save / export")) SaveProfile();
             if (GUILayout.Button("Load profile")) LoadProfile();
             if (GUILayout.Button("Delete")) DeleteProfile();
             GUILayout.EndHorizontal();
+            GUILayout.Space(7);
+            if (GUILayout.Button("Refresh imports")) RefreshProfileNames();
+            GUILayout.Space(9);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Reset pose + motion")) ResetAll();
+            if (GUILayout.Button("Reset all edits")) ResetAll();
             if (GUILayout.Button("Save + close"))
             {
                 settings.Save(); ToggleWindow(false);
             }
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
-            GUILayout.Label("Built-in presets never overwrite custom profiles. " +
-                "Custom profiles include proportions, motion limits, and " +
-                "portrait framing; saving also makes one the current state.");
+            GUILayout.Space(10);
+            GUILayout.Label("Profiles include proportions, motion limits, " +
+                "and portrait framing. Each profile is a shareable .cfg file in " +
+                "PluginData/Profiles. Drop a file there, then refresh imports. " +
+                "Saving also makes the profile current for scene changes.");
         }
 
         private void DrawPortraitTab()
         {
             GUILayout.BeginVertical(HighLogic.Skin.box);
             GUILayout.Label("Crew portrait camera");
+            GUILayout.Space(8);
             GUILayout.Label(portraitCameras.Count > 0 ?
                 portraitCameras.Count + " portrait camera" +
                 (portraitCameras.Count == 1 ? " detected" : "s detected") :
                 "Waiting for a crew portrait camera");
+            GUILayout.Space(10);
             PortraitFraming portrait = settings.Portrait;
             portrait.Horizontal = DrawPortraitSlider("Horizontal",
                 portrait.Horizontal, -0.25f, 0.25f, "0.000 m");
@@ -1830,7 +2559,7 @@ namespace KerbalProportions
             portrait.Pitch = DrawPortraitSlider("Aim pitch", portrait.Pitch,
                 -30f, 30f, "0.0 deg");
             portrait.Clamp();
-            GUILayout.Space(5);
+            GUILayout.Space(12);
             if (GUILayout.Button("Reset to stock"))
             {
                 PushUndo("Reset portrait");
@@ -1840,6 +2569,7 @@ namespace KerbalProportions
                 settings.Save();
             }
             GUILayout.EndVertical();
+            GUILayout.Space(10);
             GUILayout.Label("Framing is relative to each pod's stock portrait " +
                 "camera and applies live to every crew portrait. It never moves " +
                 "the Kerbal rig or seat. Changes save automatically.");
@@ -1854,6 +2584,7 @@ namespace KerbalProportions
             GUILayout.Label(next.ToString(format,
                 CultureInfo.InvariantCulture), GUILayout.Width(66));
             GUILayout.EndHorizontal();
+            GUILayout.Space(5);
             if (Mathf.Abs(next - current) < 0.0001f) return current;
             if (!portraitSliderEditing)
             {
@@ -1967,6 +2698,7 @@ namespace KerbalProportions
         private void SelectTarget(RigTarget target, bool additive, bool range,
             EditableRig rig, bool visibleRangeOnly)
         {
+            activeGroupId = string.Empty;
             if (range && rig != null && !string.IsNullOrEmpty(rangeAnchorKey))
             {
                 bool useVisible = visibleRangeOnly &&
@@ -2008,14 +2740,18 @@ namespace KerbalProportions
             ExpandTargetAncestors(rig, target);
             if (!selectedKeys.Contains(selectedKey)) return;
             RigTarget primary = SelectedTarget();
-            if (primary != null) SyncFields(settings.GetOrCreate(primary.Key,
-                primary.DisplayName));
+            if (primary != null)
+            {
+                SyncFields(settings.GetOrCreate(primary.Key,
+                    primary.DisplayName));
+            }
         }
 
         private void ClearSelection()
         {
             selectedKeys.Clear(); selectedKey = string.Empty;
             rangeAnchorKey = string.Empty;
+            activeGroupId = string.Empty;
         }
 
         private void SelectHierarchy()
@@ -2290,87 +3026,21 @@ namespace KerbalProportions
             SyncFields(settings.GetOrCreate(target.Key, target.DisplayName));
         }
 
-        private void LoadStockPreset()
-        {
-            PushUndo("Load Stock preset");
-            settings.ClearEdits();
-            settings.Portrait.Reset();
-            settings.Save();
-            SyncSelectedFields();
-            ScreenMessages.PostScreenMessage(
-                "Kerbal Proportions preset loaded: Stock", 2f,
-                ScreenMessageStyle.UPPER_CENTER);
-        }
-
-        private void LoadBuiltInPreset(string name)
-        {
-            ConfigNode profile = FindBuiltInPreset(name);
-            if (profile == null) return;
-            PushUndo("Load " + name + " preset");
-            ApplyProfile(profile);
-            ScreenMessages.PostScreenMessage(
-                "Kerbal Proportions preset loaded: " + name, 2f,
-                ScreenMessageStyle.UPPER_CENTER);
-        }
-
-        private static ConfigNode FindBuiltInPreset(string name)
-        {
-            try
-            {
-                if (!File.Exists(BuiltInPresetsPath)) return null;
-                ConfigNode root = ConfigNode.Load(BuiltInPresetsPath);
-                ConfigNode container = BuiltInPresetContainer(root);
-                if (container != null)
-                    foreach (ConfigNode profile in container.GetNodes("PRESET"))
-                        if (string.Equals(profile.GetValue("name"), name,
-                            StringComparison.OrdinalIgnoreCase)) return profile;
-            }
-            catch (Exception exception)
-            {
-                Debug.LogError("[KerbalProportions] Built-in preset load failed: " +
-                    exception);
-            }
-            ScreenMessages.PostScreenMessage(
-                "Kerbal Proportions preset unavailable: " + name, 2f,
-                ScreenMessageStyle.UPPER_CENTER);
-            return null;
-        }
-
-        private static ConfigNode BuiltInPresetContainer(ConfigNode root)
-        {
-            if (root == null) return null;
-            if (root.name == "KERBAL_PROPORTIONS_PRESETS") return root;
-            return root.GetNode("KERBAL_PROPORTIONS_PRESETS");
-        }
-
-        private void ApplyProfile(ConfigNode profile)
-        {
-            settings.ReplaceEdits(ReadProfileEdits(profile));
-            PortraitFraming portrait;
-            if (TryReadProfilePortrait(profile, out portrait))
-                settings.Portrait.CopyFrom(portrait);
-            settings.Save();
-            SyncSelectedFields();
-        }
-
         private void SaveProfile()
         {
             string name = (profileName ?? string.Empty).Trim();
             if (name.Length == 0) return;
-            ConfigNode root = File.Exists(ProfilesPath) ? ConfigNode.Load(ProfilesPath) :
-                new ConfigNode();
-            if (root == null) root = new ConfigNode();
-            ConfigNode container = ProfileContainer(root, true);
-            foreach (ConfigNode old in container.GetNodes("PROFILE"))
-                if (string.Equals(old.GetValue("name"), name,
-                    StringComparison.OrdinalIgnoreCase)) container.RemoveNode(old);
-            ConfigNode profile = container.AddNode("PROFILE");
+            string path = StandaloneProfilePath(name);
+            ConfigNode root = new ConfigNode();
+            ConfigNode profile = root.AddNode("KERBAL_PROPORTIONS_PROFILE");
             profile.AddValue("name", name);
+            profile.AddValue("formatVersion", 2);
             WriteProfileEdits(profile, settings.Edits);
             WriteProfilePortrait(profile, settings.Portrait);
-            string directory = Path.GetDirectoryName(ProfilesPath);
-            if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
-            root.Save(ProfilesPath);
+            EditorSettings.WriteGroups(profile, settings.Groups);
+            if (!Directory.Exists(ProfilesDirectory))
+                Directory.CreateDirectory(ProfilesDirectory);
+            root.Save(path);
             // A named profile is also the user's current working state. Persist
             // both files so a quickload/scene rebuild cannot resurrect an older
             // settings snapshot while leaving the profile itself intact.
@@ -2386,7 +3056,15 @@ namespace KerbalProportions
         private void LoadProfile()
         {
             ConfigNode profile = FindProfile(profileName); if (profile == null) return;
-            PushUndo("Load profile"); ApplyProfile(profile);
+            PushUndo("Load profile"); settings.ReplaceEdits(ReadProfileEdits(profile));
+            settings.Groups.Clear();
+            EditorSettings.ReadGroups(profile, settings.Groups);
+            activeGroupId = string.Empty;
+            RebuildAllTargetGroups();
+            PortraitFraming portrait;
+            if (TryReadProfilePortrait(profile, out portrait))
+                settings.Portrait.CopyFrom(portrait);
+            settings.Save(); SyncSelectedFields();
             ScreenMessages.PostScreenMessage(
                 "Kerbal Proportions profile loaded: " + profileName,
                 2f, ScreenMessageStyle.UPPER_CENTER);
@@ -2394,35 +3072,134 @@ namespace KerbalProportions
 
         private void DeleteProfile()
         {
-            if (!File.Exists(ProfilesPath)) return;
-            ConfigNode root = ConfigNode.Load(ProfilesPath);
-            ConfigNode container = ProfileContainer(root, false);
-            if (container == null) return;
-            foreach (ConfigNode profile in container.GetNodes("PROFILE"))
-                if (string.Equals(profile.GetValue("name"), profileName.Trim(),
-                    StringComparison.OrdinalIgnoreCase))
-                { container.RemoveNode(profile); root.Save(ProfilesPath);
-                    RefreshProfileNames(); return; }
+            string name = (profileName ?? string.Empty).Trim();
+            if (name.Length == 0) return;
+            string source;
+            if (profileSources.TryGetValue(name, out source) &&
+                source.Length > 0 && File.Exists(source)) File.Delete(source);
+            DeleteLegacyProfile(name);
+            RefreshProfileNames();
         }
 
         private void RefreshProfileNames()
         {
-            profileNames.Clear(); selectedProfile = -1;
-            if (!File.Exists(ProfilesPath)) return;
-            ConfigNode root = ConfigNode.Load(ProfilesPath);
-            ConfigNode container = ProfileContainer(root, false);
-            if (container == null) return;
-            foreach (ConfigNode profile in container.GetNodes("PROFILE"))
+            string previous = (profileName ?? string.Empty).Trim();
+            profileNames.Clear(); profileSources.Clear(); selectedProfile = -1;
+            if (Directory.Exists(ProfilesDirectory))
             {
-                string name = profile.GetValue("name") ?? string.Empty;
-                if (name.Length > 0) profileNames.Add(name);
+                foreach (string path in Directory.GetFiles(ProfilesDirectory,
+                    "*.cfg", SearchOption.TopDirectoryOnly))
+                {
+                    ConfigNode profile = LoadStandaloneProfile(path);
+                    if (profile == null) continue;
+                    string name = (profile.GetValue("name") ?? string.Empty).Trim();
+                    if (name.Length == 0 || profileSources.ContainsKey(name)) continue;
+                    profileSources[name] = path;
+                    profileNames.Add(name);
+                }
+            }
+            if (File.Exists(ProfilesPath))
+            {
+                ConfigNode root = ConfigNode.Load(ProfilesPath);
+                ConfigNode container = ProfileContainer(root, false);
+                if (container != null)
+                    foreach (ConfigNode profile in container.GetNodes("PROFILE"))
+                    {
+                        string name = (profile.GetValue("name") ??
+                            string.Empty).Trim();
+                        if (name.Length == 0 || profileSources.ContainsKey(name))
+                            continue;
+                        profileSources[name] = string.Empty;
+                        profileNames.Add(name);
+                    }
             }
             profileNames.Sort(StringComparer.OrdinalIgnoreCase);
             if (profileNames.Count > 0)
             {
-                selectedProfile = 0;
-                profileName = profileNames[0];
+                selectedProfile = profileNames.FindIndex(delegate(string item) {
+                    return string.Equals(item, previous,
+                        StringComparison.OrdinalIgnoreCase); });
+                if (selectedProfile < 0) selectedProfile = 0;
+                profileName = profileNames[selectedProfile];
             }
+        }
+
+        private static ConfigNode LoadStandaloneProfile(string path)
+        {
+            try
+            {
+                ConfigNode root = ConfigNode.Load(path);
+                if (root == null) return null;
+                if (root.name == "KERBAL_PROPORTIONS_PROFILE") return root;
+                ConfigNode profile = root.GetNode("KERBAL_PROPORTIONS_PROFILE");
+                if (profile != null) return profile;
+                if (root.name == "PROFILE") return root;
+                profile = root.GetNode("PROFILE");
+                if (profile != null) return profile;
+                // ConfigNode.Save can serialize a named root as flat top-level
+                // values. Accept those files so profiles exported by early 2.6
+                // test builds remain importable.
+                if (!string.IsNullOrEmpty(root.GetValue("name")) &&
+                    (root.GetNodes("TARGET").Length > 0 ||
+                    root.GetNodes("GROUP").Length > 0 ||
+                    root.GetNodes("COLLIDER").Length > 0 ||
+                    root.GetNode("PORTRAIT") != null)) return root;
+                return null;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("[KerbalProportions] Could not import profile " +
+                    path + ": " + exception.Message);
+                return null;
+            }
+        }
+
+        private string StandaloneProfilePath(string name)
+        {
+            string existing;
+            if (profileSources.TryGetValue(name, out existing) &&
+                existing.Length > 0) return existing;
+            string safe = SafeFileName(name);
+            string path = Path.Combine(ProfilesDirectory, safe + ".cfg");
+            int suffix = 2;
+            while (File.Exists(path))
+            {
+                ConfigNode profile = LoadStandaloneProfile(path);
+                if (profile != null && string.Equals(profile.GetValue("name"),
+                    name, StringComparison.OrdinalIgnoreCase)) return path;
+                path = Path.Combine(ProfilesDirectory, safe + "-" +
+                    suffix.ToString(CultureInfo.InvariantCulture) + ".cfg");
+                suffix++;
+            }
+            return path;
+        }
+
+        private static string SafeFileName(string name)
+        {
+            char[] invalid = Path.GetInvalidFileNameChars();
+            char[] characters = (name ?? string.Empty).Trim().ToCharArray();
+            for (int index = 0; index < characters.Length; index++)
+                if (Array.IndexOf(invalid, characters[index]) >= 0)
+                    characters[index] = '_';
+            string result = new string(characters).Trim().TrimEnd('.');
+            return result.Length > 0 ? result : "Profile";
+        }
+
+        private static void DeleteLegacyProfile(string name)
+        {
+            if (!File.Exists(ProfilesPath)) return;
+            ConfigNode root = ConfigNode.Load(ProfilesPath);
+            ConfigNode container = ProfileContainer(root, false);
+            if (container == null) return;
+            bool changed = false;
+            foreach (ConfigNode profile in container.GetNodes("PROFILE"))
+                if (string.Equals(profile.GetValue("name"), name,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    container.RemoveNode(profile);
+                    changed = true;
+                }
+            if (changed) root.Save(ProfilesPath);
         }
 
         private static void WriteProfileEdits(ConfigNode profile,
@@ -2449,6 +3226,14 @@ namespace KerbalProportions
                 target.AddValue("animationInfluenceZ",
                     EditorSettings.Format(edit.AnimationInfluence.z));
             }
+        }
+
+        private static void WriteProfileVector(ConfigNode node, string prefix,
+            Vector3 value)
+        {
+            node.AddValue(prefix + "X", EditorSettings.Format(value.x));
+            node.AddValue(prefix + "Y", EditorSettings.Format(value.y));
+            node.AddValue(prefix + "Z", EditorSettings.Format(value.z));
         }
 
         private static void WriteProfilePortrait(ConfigNode profile,
@@ -2491,12 +3276,20 @@ namespace KerbalProportions
 
         private ConfigNode FindProfile(string name)
         {
+            string trimmed = (name ?? string.Empty).Trim();
+            string source;
+            if (profileSources.TryGetValue(trimmed, out source) &&
+                source.Length > 0)
+            {
+                ConfigNode standalone = LoadStandaloneProfile(source);
+                if (standalone != null) return standalone;
+            }
             if (!File.Exists(ProfilesPath)) return null;
             ConfigNode root = ConfigNode.Load(ProfilesPath);
             ConfigNode container = ProfileContainer(root, false);
             if (container == null) return null;
             foreach (ConfigNode profile in container.GetNodes("PROFILE"))
-                if (string.Equals(profile.GetValue("name"), (name ?? "").Trim(),
+                if (string.Equals(profile.GetValue("name"), trimmed,
                     StringComparison.OrdinalIgnoreCase)) return profile;
             ScreenMessages.PostScreenMessage(
                 "Kerbal Proportions profile not found: " + name, 2f,
@@ -2570,19 +3363,19 @@ namespace KerbalProportions
 
         private void HandleViewportInput()
         {
-            Camera camera = ActiveCamera(); RigTarget target = SelectedTarget();
             Vector3 mouse = Input.mousePosition;
             Vector2 guiMouse = new Vector2(mouse.x, Screen.height - mouse.y);
-            if (windowRect.Contains(guiMouse))
-            {
-                hotAxis = -1; hoverTarget = null; hoverRig = null; return;
-            }
-
+            Camera camera = ActiveCamera(); RigTarget target = SelectedTarget();
             if (dragging)
             {
                 if (Input.GetMouseButton(0)) UpdateDrag(camera, mouse);
                 else EndDrag();
                 return;
+            }
+            if (hierarchyWindowRect.Contains(guiMouse) ||
+                controlsWindowRect.Contains(guiMouse))
+            {
+                hotAxis = -1; hoverTarget = null; hoverRig = null; return;
             }
             hotAxis = target == null || camera == null ? -1 :
                 HitAxis(camera, target, mouse);
@@ -2608,7 +3401,8 @@ namespace KerbalProportions
             float bestDepth = float.MaxValue;
             foreach (RigTarget candidate in rig.Targets)
             {
-                if (candidate.Transform == null || candidate.Category != "Bone")
+                if (candidate.Transform == null || candidate.Category != "Bone" ||
+                    !MatchesTypeFilter(candidate))
                     continue;
                 Vector3 screen = camera.WorldToScreenPoint(candidate.Transform.position);
                 if (screen.z <= 0f) continue;
@@ -2635,7 +3429,8 @@ namespace KerbalProportions
             float smallestArea = float.MaxValue;
             foreach (RigTarget candidate in rig.Targets)
             {
-                if (candidate.Category != "Mesh") continue;
+                if (candidate.Category != "Mesh" ||
+                    !MatchesTypeFilter(candidate)) continue;
                 foreach (BoneRendererBinding binding in candidate.RendererBindings)
                 {
                     if (binding.Renderer == null) continue;
@@ -2702,6 +3497,9 @@ namespace KerbalProportions
                 else
                 {
                     Vector3 end = camera.WorldToScreenPoint(pivot + axes[axis] * size);
+                    if (end.z <= 0f || Vector2.Distance(
+                        new Vector2(start.x, start.y),
+                        new Vector2(end.x, end.y)) < 18f) continue;
                     distance = DistanceToSegment(new Vector2(mouse.x, mouse.y),
                         new Vector2(start.x, start.y), new Vector2(end.x, end.y));
                 }
@@ -2717,6 +3515,7 @@ namespace KerbalProportions
             dragAxes = GizmoAxes(target); dragSize = GizmoWorldSize(camera, dragPivot);
             dragTargets.Clear();
             EditableRig rig = PrimaryRig();
+            dragVirtualGroup = !mirrorEdit && ActiveRuntimeGroup(rig) != null;
             HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
             List<RigTarget> sources = OrderedSelectionRoots(target);
             dragPrimarySource = sources.Count > 0 ? sources[0] : target;
@@ -2725,19 +3524,28 @@ namespace KerbalProportions
                 if (!visited.Add(source.Key)) continue;
                 dragTargets.Add(new DragTargetState { Target = source,
                     Source = source, Initial = settings.GetOrCreate(source.Key,
-                    source.DisplayName).Clone(), Mirrored = false });
+                    source.DisplayName).Clone(),
+                    InitialWorldPosition = source.Transform.position,
+                    Mirrored = false });
                 if (!mirrorEdit || rig == null) continue;
                 RigTarget counterpart = FindCounterpart(rig, source);
                 if (counterpart == null || !visited.Add(counterpart.Key)) continue;
                 dragTargets.Add(new DragTargetState { Target = counterpart,
                     Source = source, Initial = settings.GetOrCreate(counterpart.Key,
-                    counterpart.DisplayName).Clone(), Mirrored = true });
+                    counterpart.DisplayName).Clone(),
+                    InitialWorldPosition = counterpart.Transform.position,
+                    Mirrored = true });
             }
             Vector3 pivotScreen = camera.WorldToScreenPoint(dragPivot);
             Vector2 radial = new Vector2(mouse.x - pivotScreen.x,
                 mouse.y - pivotScreen.y).normalized;
             dragRotationTangent = radial.sqrMagnitude > 0.1f ?
                 new Vector2(-radial.y, radial.x) : Vector2.right;
+            if (hotAxis >= 0 && hotAxis < 3 && Vector3.Dot(
+                dragAxes[hotAxis], camera.transform.forward) < 0f)
+                dragRotationTangent = -dragRotationTangent;
+            dragRotationPlaneValid = editMode == EditMode.Rotate &&
+                TryRotationPlaneVector(camera, mouse, out dragRotationStart);
             InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS,
                 "KerbalProportionsGumball");
         }
@@ -2779,7 +3587,13 @@ namespace KerbalProportions
             }
             else if (editMode == EditMode.Rotate)
             {
-                float degrees = Vector2.Dot(deltaMouse, dragRotationTangent) * 0.6f;
+                Vector3 currentRotationVector;
+                float degrees = dragRotationPlaneValid &&
+                    TryRotationPlaneVector(camera, mouse,
+                        out currentRotationVector) ?
+                    Vector3.SignedAngle(dragRotationStart,
+                        currentRotationVector, dragAxes[hotAxis]) :
+                    Vector2.Dot(deltaMouse, dragRotationTangent) * 0.6f;
                 foreach (DragTargetState state in dragTargets)
                 {
                     Vector3 worldAxis = settings.LocalSpace ?
@@ -2798,8 +3612,16 @@ namespace KerbalProportions
                         Quaternion.AngleAxis(degrees, worldAxis.normalized) * parentWorld;
                     Quaternion newEdit = Quaternion.Inverse(baseLocal) * worldInParent *
                         baseLocal * initial;
-                    settings.GetOrCreate(state.Target.Key,
-                        state.Target.DisplayName).Rotation = SignedEuler(newEdit);
+                    TransformEdit edit = settings.GetOrCreate(state.Target.Key,
+                        state.Target.DisplayName);
+                    edit.Rotation = SignedEuler(newEdit);
+                    if (dragVirtualGroup && !state.Mirrored)
+                    {
+                        Vector3 desired = dragPivot + Quaternion.AngleAxis(
+                            degrees, dragAxes[hotAxis].normalized) *
+                            (state.InitialWorldPosition - dragPivot);
+                        ApplyVirtualGroupPosition(state, edit, desired);
+                    }
                 }
             }
             else
@@ -2811,12 +3633,44 @@ namespace KerbalProportions
                         state.Initial.Scale;
                     if (hotAxis < 3)
                         scale[hotAxis] = state.Initial.Scale[hotAxis] * factor;
-                    settings.GetOrCreate(state.Target.Key,
-                        state.Target.DisplayName).Scale =
-                        EditorSettings.ClampScale(scale);
+                    TransformEdit edit = settings.GetOrCreate(state.Target.Key,
+                        state.Target.DisplayName);
+                    edit.Scale = EditorSettings.ClampScale(scale);
+                    if (dragVirtualGroup && !state.Mirrored)
+                    {
+                        Vector3 relative = state.InitialWorldPosition - dragPivot;
+                        Vector3 desiredRelative;
+                        if (hotAxis == 3) desiredRelative = relative * factor;
+                        else
+                        {
+                            Vector3 groupAxis = dragAxes[hotAxis].normalized;
+                            desiredRelative = relative + groupAxis *
+                                Vector3.Dot(relative, groupAxis) * (factor - 1f);
+                        }
+                        ApplyVirtualGroupPosition(state, edit,
+                            dragPivot + desiredRelative);
+                    }
                 }
             }
             SyncSelectedFields();
+        }
+
+        private RuntimeTargetGroup ActiveRuntimeGroup(EditableRig rig)
+        {
+            if (rig == null || string.IsNullOrEmpty(activeGroupId)) return null;
+            return rig.Groups.Find(delegate(RuntimeTargetGroup item) {
+                return item.Id == activeGroupId; });
+        }
+
+        private static void ApplyVirtualGroupPosition(DragTargetState state,
+            TransformEdit edit, Vector3 desiredWorldPosition)
+        {
+            Vector3 worldDelta = desiredWorldPosition -
+                state.InitialWorldPosition;
+            Vector3 localDelta = state.Target.Transform.parent == null ?
+                worldDelta : state.Target.Transform.parent
+                    .InverseTransformVector(worldDelta);
+            edit.Position = state.Initial.Position + localDelta;
         }
 
         private void EndDrag()
@@ -2825,7 +3679,30 @@ namespace KerbalProportions
             dragging = false; hotAxis = -1;
             dragTargets.Clear();
             dragPrimarySource = null;
+            dragRotationPlaneValid = false;
+            dragVirtualGroup = false;
             InputLockManager.RemoveControlLock("KerbalProportionsGumball");
+        }
+
+        private bool TryRotationPlaneVector(Camera camera, Vector3 mouse,
+            out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            if (camera == null || hotAxis < 0 || hotAxis >= 3 ||
+                dragAxes == null || dragAxes.Length < 3) return false;
+            Vector3 normal = dragAxes[hotAxis].normalized;
+            Ray ray = camera.ScreenPointToRay(new Vector3(mouse.x, mouse.y, 0f));
+            // An edge-on ring has no stable screen-to-plane intersection; the
+            // camera-facing signed tangent fallback handles that case.
+            if (Mathf.Abs(Vector3.Dot(ray.direction, normal)) < 0.025f)
+                return false;
+            Plane plane = new Plane(normal, dragPivot);
+            float distance;
+            if (!plane.Raycast(ray, out distance) || distance < 0f) return false;
+            direction = ray.GetPoint(distance) - dragPivot;
+            if (direction.sqrMagnitude < 0.00000001f) return false;
+            direction.Normalize();
+            return true;
         }
 
         private Vector3 GizmoPivot(RigTarget fallback)
@@ -2855,10 +3732,51 @@ namespace KerbalProportions
 
         private Vector3[] GizmoAxes(RigTarget target)
         {
-            if (settings.LocalSpace && target != null && target.Transform != null)
+            // Unity localScale has no world/surface-axis representation without
+            // introducing shear. Keep the scale handles aligned to the exact
+            // X/Y/Z components they modify.
+            if ((settings.LocalSpace || editMode == EditMode.Scale) &&
+                target != null && target.Transform != null)
                 return new [] { target.Transform.right.normalized,
                     target.Transform.up.normalized, target.Transform.forward.normalized };
-            return new [] { Vector3.right, Vector3.up, Vector3.forward };
+            return SurfaceAxes(target);
+        }
+
+        private Vector3[] SurfaceAxes(RigTarget target)
+        {
+            EditableRig rig = PrimaryRig();
+            Transform root = rig == null ? null : rig.Root;
+            KerbalEVA eva = rig == null ? null : rig.Owner as KerbalEVA;
+            Vector3 pivot = target != null && target.Transform != null ?
+                target.Transform.position : (root == null ? Vector3.zero :
+                root.position);
+            CelestialBody body = FlightGlobals.currentMainBody;
+            Vector3 up = eva != null && eva.fUp.sqrMagnitude > 0.000001f ?
+                eva.fUp : (body == null || body.transform == null ?
+                (root == null ? Vector3.up : root.up) :
+                pivot - body.transform.position);
+            if (up.sqrMagnitude < 0.000001f)
+                up = root == null ? Vector3.up : root.up;
+            up.Normalize();
+
+            // KerbalEVA.fFwd is the camera-relative control direction, not the
+            // direction the Kerbal model is facing. The rig root carries the
+            // actual character heading, including turns made while stationary.
+            Vector3 facing = root == null ?
+                (target == null || target.Transform == null ? Vector3.forward :
+                target.Transform.forward) : root.forward;
+            Vector3 forward = Vector3.ProjectOnPlane(facing, up);
+            if (forward.sqrMagnitude < 0.000001f && target != null &&
+                target.Transform != null)
+                forward = Vector3.ProjectOnPlane(target.Transform.forward, up);
+            if (forward.sqrMagnitude < 0.000001f)
+                forward = Vector3.Cross(Vector3.right, up);
+            if (forward.sqrMagnitude < 0.000001f)
+                forward = Vector3.Cross(Vector3.forward, up);
+            forward.Normalize();
+            Vector3 right = Vector3.Cross(up, forward).normalized;
+            forward = Vector3.Cross(right, up).normalized;
+            return new [] { right, up, forward };
         }
 
         private float GizmoWorldSize(Camera camera, Vector3 pivot)
@@ -2919,8 +3837,10 @@ namespace KerbalProportions
         private void OnRenderObject()
         {
             if (!visible || !settings.Enabled || lineMaterial == null) return;
-            Camera camera = ActiveCamera();
-            if (camera == null || Camera.current != camera) return;
+            Camera camera = Camera.current;
+            Camera active = ActiveCamera();
+            if (active == null || camera != active) return;
+            camera = active;
             RigTarget target = SelectedTarget();
             lineMaterial.SetPass(0);
             GL.PushMatrix(); GL.Begin(GL.TRIANGLES);
@@ -2932,7 +3852,7 @@ namespace KerbalProportions
                 if (selected == target || selected.Transform == null) continue;
                 float markerSize = GizmoWorldSize(camera,
                     selected.Transform.position) * 0.12f;
-                GL.Color(new Color(0.2f, 0.9f, 1f, 0.95f));
+                GL.Color(TargetHighlightColor(selected));
                 DrawBillboardDiamond(camera, selected.Transform.position,
                     markerSize, 2.5f);
             }
@@ -2944,6 +3864,8 @@ namespace KerbalProportions
             Vector3 pivot = GizmoPivot(target);
             Vector3[] axes = GizmoAxes(target);
             float size = GizmoWorldSize(camera, pivot);
+            GL.Color(TargetHighlightColor(target));
+            DrawBillboardRing(camera, pivot, size * 0.12f, 3f);
             Color[] colors = { Color.red, Color.green, new Color(0.2f, 0.55f, 1f) };
             // Draw the hot axis last so its wider yellow stroke remains legible.
             for (int pass = 0; pass < 2; pass++)
@@ -2988,7 +3910,7 @@ namespace KerbalProportions
             Vector3 center = target.Transform.position;
             float size = Mathf.Clamp(Vector3.Distance(camera.transform.position,
                 center) * 0.012f, 0.012f, 0.4f);
-            GL.Color(new Color(1f, 0.78f, 0.05f, 1f));
+            GL.Color(TargetHighlightColor(target));
             DrawBillboardDiamond(camera, center, size, 3f);
             DrawBillboardRing(camera, center, size * 1.45f, 3f);
             if (target.Category == "Bone" && rig != null)
@@ -3008,6 +3930,23 @@ namespace KerbalProportions
                     if (binding.Renderer != null)
                         DrawBounds(camera, binding.Renderer.bounds, 2.5f);
             }
+            foreach (ColliderBinding binding in target.ColliderBindings)
+            {
+                Collider active = binding.Collider;
+                if (active != null && active.enabled)
+                    DrawBounds(camera, active.bounds, 3f);
+            }
+        }
+
+        private static Color TargetHighlightColor(RigTarget target)
+        {
+            if (target != null && target.ColliderBindings.Count > 0)
+                return new Color(1f, 0.25f, 0.82f, 1f);
+            if (target != null && target.Category == "Mesh")
+                return new Color(0.1f, 0.9f, 1f, 1f);
+            if (target != null && target.Category == "Bone")
+                return new Color(1f, 0.72f, 0.08f, 1f);
+            return Color.white;
         }
 
         private static void DrawBillboardDiamond(Camera camera, Vector3 center,
@@ -3184,30 +4123,7 @@ namespace KerbalProportions
             toolbarButton = KSP.UI.Screens.ApplicationLauncher.Instance.AddModApplication(
                 delegate { ToggleWindow(true); }, delegate { ToggleWindow(false); },
                 null, null, null, null,
-                KSP.UI.Screens.ApplicationLauncher.AppScenes.FLIGHT |
-                    KSP.UI.Screens.ApplicationLauncher.AppScenes.MAPVIEW,
-                toolbarIcon);
-        }
-
-        private void OnToolbarDestroyed()
-        {
-            // The launcher owns and destroys its button. Clear our scene-local
-            // references so a subsequently created flight launcher gets one
-            // fresh button and no stale icon is retained.
-            toolbarButton = null;
-            if (toolbarIcon != null) Destroy(toolbarIcon);
-            toolbarIcon = null;
-        }
-
-        private void RemoveToolbarButton()
-        {
-            if (toolbarButton != null &&
-                KSP.UI.Screens.ApplicationLauncher.Instance != null)
-                KSP.UI.Screens.ApplicationLauncher.Instance.RemoveModApplication(
-                    toolbarButton);
-            toolbarButton = null;
-            if (toolbarIcon != null) Destroy(toolbarIcon);
-            toolbarIcon = null;
+                KSP.UI.Screens.ApplicationLauncher.AppScenes.ALWAYS, toolbarIcon);
         }
 
         private void ToggleWindow(bool show)
@@ -3215,9 +4131,9 @@ namespace KerbalProportions
             visible = show;
             if (!show)
             {
-                if ((animationSliderEditing || portraitSliderEditing ||
-                    gizmoSliderEditing) && settings != null)
+                if (settings != null)
                 {
+                    CaptureWindowPositions();
                     animationSliderEditing = false;
                     portraitSliderEditing = false;
                     gizmoSliderEditing = false;
@@ -3264,18 +4180,23 @@ namespace KerbalProportions
 
         private void OnDestroy()
         {
-            if ((animationSliderEditing || portraitSliderEditing ||
-                gizmoSliderEditing) && settings != null) settings.Save();
+            if (settings != null)
+            {
+                CaptureWindowPositions();
+                settings.Save();
+            }
             EndDrag();
             foreach (EditableRig rig in rigs) rig.Restore();
             RestorePortraitCameras();
             GameEvents.onGUIApplicationLauncherReady.Remove(CreateToolbarButton);
-            GameEvents.onGUIApplicationLauncherDestroyed.Remove(
-                OnToolbarDestroyed);
             Camera.onPreCull -= OnCameraPreCull;
             Camera.onPreRender -= OnCameraPreRender;
             Camera.onPostRender -= OnCameraPostRender;
-            RemoveToolbarButton();
+            if (toolbarButton != null &&
+                KSP.UI.Screens.ApplicationLauncher.Instance != null)
+                KSP.UI.Screens.ApplicationLauncher.Instance.RemoveModApplication(
+                    toolbarButton);
+            if (toolbarIcon != null) Destroy(toolbarIcon);
             if (lineMaterial != null) Destroy(lineMaterial);
         }
     }

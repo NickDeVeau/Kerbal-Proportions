@@ -10,30 +10,42 @@ lets you reshape EVA and IVA Kerbals in flight by moving, rotating, and scaling
 the bones and mesh roots already present in the active model. No replacement
 Kerbal model or texture pack is required.
 
-The current release is **v2.5.1**, tested with **KSP 1.12.5**.
+The current release is **v2.6.0**, tested with **KSP 1.12.5**.
 
 ## Features
 
 - Edit discovered Kerbal bones and mesh roots with an always-visible viewport
   gumball or exact numeric values.
+- Arrange independent draggable Hierarchy and Controls windows around the
+  flight view; their positions persist between scenes and launches.
+- Select and manipulate targets directly on the Kerbal in the normal world view.
 - Search and browse targets in a collapsible hierarchy that follows the actual
   runtime rig.
 - Hover highlighting, Ctrl multi-selection, Shift range selection, whole-branch
   selection, and mirrored left/right editing.
+- Type-aware highlighting for bones, rendered meshes, and collider-bearing
+  targets, including a matching hierarchy legend.
+- Persistent type filters that apply to both viewport hover selection and the
+  hierarchy while promoting visible descendants of filtered-out parents.
 - Move, rotate, or scale several related bones together without compounding
   nested scale changes.
+- Create persistent virtual accessory groups from unrelated mesh roots; group
+  gumballs rotate and scale the complete assembly around a shared pivot without
+  reparenting mod objects. Compatible wearable props can be grouped
+  automatically, and group definitions travel with profiles.
+- Switch between target-local axes and a surface frame whose up axis points
+  away from the current body and whose forward axis follows the Kerbal.
 - Reduce stock animation rotation independently on each local axis, or use
   animation-safe pose rotation to layer a correction over the rest pose.
 - Edit EVA and IVA rigs, including IVA overlays used by compatible internal-view
   mods. IVA editing is intentionally opt-in.
 - Adjust portrait framing, zoom, yaw, and pitch without moving a Kerbal out of
   its seat.
-- Save, load, and delete named pose, motion, and portrait profiles while keeping
-  the current edit across scene changes and quickloads.
-- Start from the included Stock or Humanoid preset without overwriting custom
-  profiles.
-- Scale wearable helmets and accessories from Benjee10's Historical Kerbal
-  Suits with their declared attachment bones.
+- Save, load, import, and delete named pose, motion, and portrait profiles as
+  standalone shareable files while keeping the current edit across scene
+  changes and quickloads.
+- Rediscover removable suit accessories and wearable props at runtime so saved
+  edits can match newly recreated instances after reattachment.
 
 Kerbal Proportions changes the rendered rig. It does not replace Kerbal meshes,
 change vessel physics, or alter Kerbal statistics.
@@ -41,7 +53,7 @@ change vessel physics, or alter Kerbal statistics.
 ## Installation
 
 1. Close KSP.
-2. Download `KerbalProportions-v2.5.1.zip` from the
+2. Download `KerbalProportions-v2.6.0.zip` from the
    [latest GitHub release](https://github.com/NickDeVeau/Kerbal-Proportions/releases/latest)
    or [SpaceDock](https://spacedock.info/mod/4513).
 3. Extract the ZIP into the KSP installation folder and merge its `GameData`
@@ -57,9 +69,8 @@ that old folder after copying its `PluginData` somewhere safe. Do not leave both
 DLLs installed.
 
 The release archive does not contain a personal `settings.cfg` or
-`profiles.cfg`, so installing an update will not overwrite your edits. Its
-read-only built-in presets are stored separately in `presets.cfg`. The mod
-creates and updates personal files under
+`profiles.cfg`, so installing an update will not overwrite your edits. The mod
+creates and updates those files under
 `GameData/KerbalProportions/PluginData` while KSP is running.
 
 ## Basic use
@@ -91,6 +102,23 @@ The **Portrait** tab modifies only KSP's portrait cameras. The **Profiles** tab
 stores pose, motion, and portrait values together. General editor preferences
 remain in the current settings file rather than in each named profile.
 
+Each newly saved profile is a standalone `.cfg` file in
+`GameData/KerbalProportions/PluginData/Profiles`. To import one, copy it into
+that folder and select **Refresh imports** in the Profiles tab. Older combined
+`PluginData/profiles.cfg` libraries remain readable.
+
+Surface axes apply to move and rotate. Scale handles remain target-local so the
+red, green, and blue handles always modify the displayed X, Y, and Z scale
+components respectively; arbitrary surface-axis scale would require mesh shear.
+
+Moving or rotating a bone that carries a ragdoll rigidbody still moves that
+physics transform. On entry to EVA ragdoll, the mod hands the last edited pose
+to physics once, rebases the active CharacterJoint attachment anchors, and then
+stops writing position and rotation until recovery. Collider-bearing targets
+remain visible for identification, but the mod does not modify or replace their
+collider components. Extreme overlapping shapes or rotations outside stock
+joint limits can still destabilize the ragdoll.
+
 ## Compatibility and limitations
 
 - Tested on KSP 1.12.5. Other KSP versions are not currently claimed as
@@ -118,7 +146,7 @@ From PowerShell:
 Useful options:
 
 ```powershell
-# Build and create artifacts/KerbalProportions-v2.5.1.zip
+# Build and create artifacts/KerbalProportions-v2.6.0.zip
 .\build.ps1 -KspRoot 'C:\Path\To\Kerbal Space Program' -Package
 
 # Build and install into that KSP copy; KSP must be closed

@@ -10,11 +10,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$modVersion = '2.5.1'
+$modVersion = '2.6.0'
 $projectRoot = $PSScriptRoot
 $sourceModRoot = Join-Path $projectRoot 'GameData\KerbalProportions'
 $sourceSettings = Join-Path $sourceModRoot 'PluginData\settings.cfg'
-$sourcePresets = Join-Path $sourceModRoot 'presets.cfg'
 $sourceVersion = Join-Path $sourceModRoot 'KerbalProportions.version'
 $managed = Join-Path $KspRoot 'KSP_x64_Data\Managed'
 $distGameDataRoot = Join-Path $projectRoot 'dist\GameData'
@@ -72,7 +71,6 @@ if (-not (Test-Path -LiteralPath $KspRoot -PathType Container)) {
 }
 Assert-File $Compiler 'C# compiler'
 Assert-File $sourceSettings 'Default settings file'
-Assert-File $sourcePresets 'Built-in presets file'
 Assert-File $sourceVersion 'KSP-AVC version file'
 
 $references = @(
@@ -82,6 +80,7 @@ $references = @(
     (Join-Path $managed 'UnityEngine.IMGUIModule.dll'),
     (Join-Path $managed 'UnityEngine.TextRenderingModule.dll'),
     (Join-Path $managed 'UnityEngine.AnimationModule.dll'),
+    (Join-Path $managed 'UnityEngine.PhysicsModule.dll'),
     (Join-Path $managed 'UnityEngine.InputLegacyModule.dll'),
     (Join-Path $managed 'UnityEngine.UI.dll')
 )
@@ -117,7 +116,6 @@ $arguments += $sourceFiles
 if ($LASTEXITCODE -ne 0) { throw "Compiler exited with code $LASTEXITCODE" }
 
 Copy-Item -LiteralPath $sourceSettings -Destination $pluginDataRoot
-Copy-Item -LiteralPath $sourcePresets -Destination $outputRoot
 Copy-Item -LiteralPath $sourceVersion -Destination $outputRoot
 
 if ($Install) {
@@ -161,7 +159,6 @@ if ($Install) {
     $installedDll = Join-Path $installedPluginRoot 'KerbalProportions.dll'
     $installedPdb = Join-Path $installedPluginRoot 'KerbalProportions.pdb'
     Copy-Item -LiteralPath $outputDll -Destination $installedDll -Force
-    Copy-Item -LiteralPath $sourcePresets -Destination $installRoot -Force
     Copy-Item -LiteralPath $sourceVersion -Destination $installRoot -Force
     $outputPdb = [IO.Path]::ChangeExtension($outputDll, '.pdb')
     if (Test-Path -LiteralPath $outputPdb) {
@@ -192,7 +189,6 @@ if ($Package) {
     $stagePluginRoot = Join-Path $stageModRoot 'Plugins'
     New-Item -ItemType Directory -Path $stagePluginRoot -Force | Out-Null
     Copy-Item -LiteralPath $outputDll -Destination $stagePluginRoot
-    Copy-Item -LiteralPath $sourcePresets -Destination $stageModRoot
     Copy-Item -LiteralPath $sourceVersion -Destination $stageModRoot
     foreach ($document in @('README.md', 'LICENSE', 'CHANGELOG.md')) {
         Copy-Item -LiteralPath (Join-Path $projectRoot $document) -Destination $stageModRoot
