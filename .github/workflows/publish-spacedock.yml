@@ -42,6 +42,18 @@ jobs:
 
           asset="KerbalProportions-${tag}.zip"
           mkdir -p release
+          for attempt in {1..18}; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | grep -Fxq "$asset"; then
+              break
+            fi
+            if [[ "$attempt" -eq 18 ]]; then
+              echo "Release asset $asset did not appear within three minutes." >&2
+              exit 1
+            fi
+            echo "Waiting for release asset $asset (attempt $attempt/18)..."
+            sleep 10
+          done
           gh release download "$tag" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "$asset" \
