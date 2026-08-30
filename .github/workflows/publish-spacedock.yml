@@ -1,0 +1,105 @@
+name: Publish to SpaceDock
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag to mirror
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spacedock-${{ github.event.release.tag_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Mirror GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SPACEDOCK_USERNAME: ${{ secrets.SPACEDOCK_USERNAME }}
+      SPACEDOCK_PASSWORD: ${{ secrets.SPACEDOCK_PASSWORD }}
+      SPACEDOCK_MOD_ID: "4513"
+
+    steps:
+      - name: Resolve release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ github.event.release.tag_name || inputs.release_tag }}'
+          if [[ -z "$tag" ]]; then
+            echo "A release tag is required." >&2
+            exit 1
+          fi
+
+          asset="KerbalProportions-${tag}.zip"
+          mkdir -p release
+          gh release download "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$asset" \
+            --dir release
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+            --jq '.body // ""' > release/changelog.md
+
+          version_json="$(unzip -p "release/$asset" 'GameData/KerbalProportions/KerbalProportions.version')"
+          mod_version="$(jq -r '.VERSION | "\(.MAJOR).\(.MINOR).\(.PATCH)"' <<< "$version_json")"
+          ksp_version="$(jq -r '.KSP_VERSION | "\(.MAJOR).\(.MINOR).\(.PATCH)"' <<< "$version_json")"
+
+          if [[ "$tag" != "v$mod_version" ]]; then
+            echo "Tag $tag does not match packaged version $mod_version." >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "mod_version=$mod_version" >> "$GITHUB_OUTPUT"
+          echo "ksp_version=$ksp_version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate SpaceDock credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$SPACEDOCK_USERNAME" ]] || { echo 'Missing SPACEDOCK_USERNAME repository secret.' >&2; exit 1; }
+          [[ -n "$SPACEDOCK_PASSWORD" ]] || { echo 'Missing SPACEDOCK_PASSWORD repository secret.' >&2; exit 1; }
+
+      - name: Publish SpaceDock update
+        shell: bash
+        run: |
+          set -euo pipefail
+          cookie_jar="$RUNNER_TEMP/spacedock.cookies"
+
+          login_response="$(curl --fail-with-body --silent --show-error \
+            --cookie-jar "$cookie_jar" \
+            --form-string "username=$SPACEDOCK_USERNAME" \
+            --form-string "password=$SPACEDOCK_PASSWORD" \
+            'https://spacedock.info/api/login')"
+          if ! jq -e '.error == false' >/dev/null <<< "$login_response"; then
+            reason="$(jq -r '.reason // "Unknown login error"' <<< "$login_response")"
+            echo "SpaceDock login failed: $reason" >&2
+            exit 1
+          fi
+
+          upload_response="$(curl --fail-with-body --silent --show-error \
+            --cookie "$cookie_jar" \
+            --form-string "version=${{ steps.release.outputs.mod_version }}" \
+            --form-string "changelog=$(<release/changelog.md)" \
+            --form-string "game-version=${{ steps.release.outputs.ksp_version }}" \
+            --form-string 'notify-followers=yes' \
+            --form "zipball=@release/${{ steps.release.outputs.asset }};type=application/zip" \
+            "https://spacedock.info/api/mod/$SPACEDOCK_MOD_ID/update")"
+
+          if [[ -n "$upload_response" ]] && jq -e '.error == true' >/dev/null 2>&1 <<< "$upload_response"; then
+            reason="$(jq -r '.reason // "Unknown upload error"' <<< "$upload_response")"
+            echo "SpaceDock upload failed: $reason" >&2
+            exit 1
+          fi
+
+          echo "Published Kerbal Proportions ${{ steps.release.outputs.mod_version }} to SpaceDock."
